@@ -5,6 +5,7 @@ import { getDb } from './db';
 import { mediaFiles, thumbnails } from './db/schema';
 import sharp from 'sharp';
 import { eq, sql, inArray } from 'drizzle-orm';
+import exifr from 'exifr'; // Fast native parser
 
 export interface ScanResult {
     added: number;
@@ -53,12 +54,15 @@ export class FileScanner {
             for (const file of list) {
                 const filePath = path.join(dir, file);
                 try {
-                    const stat = await fs.promises.stat(filePath);
+                    // Use lstat to avoid following symlinks which cause infinite loops
+                    const stat = await fs.promises.lstat(filePath);
                     if (stat.isDirectory()) {
                         if (options.includeSubfolders) {
+                            console.log(`Scanning subdir: ${filePath}`);
                             await this.walk(filePath, result, options, onProgress);
                         }
                     } else {
+                        console.log(`Processing file: ${filePath}`);
                         await this.processFile(filePath, result, options, onProgress);
                     }
                 } catch (e) {
@@ -97,23 +101,26 @@ export class FileScanner {
             if (type === 'project' && !options.scanProjects) return;
 
             const hash = await this.calculateHash(filePath);
+            let metadata = null;
 
-            // Insert Media File
+            // 1. Insert Media File (Initial - Metadata placeholder)
             const insertResult = this.db.insert(mediaFiles).values({
                 filepath: filePath,
                 filename: path.basename(filePath),
                 type,
                 size: stat.size,
                 createdAt: Math.floor(stat.birthtimeMs),
-                hash
+                hash,
+                metadata: null
             }).returning({ id: mediaFiles.id }).get();
 
             const mediaId = insertResult.id;
 
-            // Generate Thumbnail for Images
+            // 2. Generate Thumbnail (Priority for UI)
             if (type === 'image') {
                 if (onProgress) onProgress({ status: 'generating_thumbnail', file: filePath, description: 'Generating thumbnail...' });
                 try {
+                    console.log(`[Thumbnail] Start generation: ${filePath}`);
                     const thumbnailBuffer = await sharp(filePath)
                         .resize({ width: 300, height: 300, fit: 'cover' })
                         .webp({ quality: 80 })
@@ -121,12 +128,54 @@ export class FileScanner {
 
                     this.db.insert(thumbnails).values({
                         mediaId: mediaId,
-                        data: thumbnailBuffer, // better-sqlite3 handles Buffer
+                        data: thumbnailBuffer,
                         format: 'webp'
                     }).run();
+                    console.log(`[Thumbnail] Finished generation: ${filePath}`);
                 } catch (thumbErr) {
-                    console.error(`Failed to generate thumbnail for ${filePath}`, thumbErr);
-                    // Don't fail the entire file import just because thumbnail failed
+                    console.error(`Failed to generate thumbnail for ${filePath}: ${(thumbErr as Error).message}`);
+                }
+            }
+
+            // 3. Extract Metadata via exifr (Fast Native)
+            if (type === 'image') {
+                try {
+                    if (onProgress) onProgress({ status: 'processing', file: filePath, description: 'Extracting metadata...' });
+                    console.log(`[Exif] Start reading (exifr): ${filePath}`);
+
+                    // Parse: get everything available efficiently
+                    metadata = await exifr.parse(filePath, {
+                        tiff: true,
+                        xmp: true,
+                        icc: false, // ICC often invalid UTF8, skip for safety
+                        // ifd0/ifd1 are handled under tiff or specific blocks, explicit boolean types cause TS issues
+                        exif: true,
+                        gps: true,
+                        interop: true,
+                    });
+
+                    console.log(`[Exif] Finished reading: ${filePath}`);
+                } catch (e) {
+                    console.error(`Metadata parsing failed for ${filePath}`, e);
+                    console.log(`[Exif] Fallback: Using file modification time.`);
+                    // Fallback to minimal metadata from stat so date is correct in UI
+                    metadata = {
+                        modify_date: stat.mtime,
+                        ModifyDate: stat.mtime,
+                        fallback: true,
+                        error: (e as Error).message
+                    };
+                }
+
+                if (metadata) {
+                    try {
+                        this.db.update(mediaFiles)
+                            .set({ metadata })
+                            .where(eq(mediaFiles.id, mediaId))
+                            .run();
+                    } catch (updateErr) {
+                        console.error('Failed to update metadata in DB', updateErr);
+                    }
                 }
             }
 
@@ -163,7 +212,6 @@ export class FileScanner {
     }
 
     async getDuplicates() {
-        // Find hashes that appear more than once
         const duplicatedHashes = await this.db
             .select({ hash: mediaFiles.hash })
             .from(mediaFiles)

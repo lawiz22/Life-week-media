@@ -1,20 +1,22 @@
 import { useEffect, useState } from 'react';
 import { StatsModal } from './StatsModal';
 
-interface MediaFile {
+export interface MediaFile {
     id: number;
     filepath: string;
     filename: string;
     type: string;
     createdAt?: number;
     available?: boolean;
+    metadata?: any;
 }
 
 interface MediaGridProps {
     type: string;
+    onSelect?: (file: MediaFile) => void;
 }
 
-export function MediaGrid({ type }: MediaGridProps) {
+export function MediaGrid({ type, onSelect }: MediaGridProps) {
     const [files, setFiles] = useState<MediaFile[]>([]);
     const [loading, setLoading] = useState(true);
     const [showStats, setShowStats] = useState(false);
@@ -67,7 +69,11 @@ export function MediaGrid({ type }: MediaGridProps) {
             <div className="flex-1 overflow-y-auto p-4">
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
                     {files.map((file) => (
-                        <div key={file.id} className="group relative aspect-square bg-gray-800 rounded-md overflow-hidden border border-gray-700 hover:border-blue-500 transition-colors">
+                        <div
+                            key={file.id}
+                            onClick={() => onSelect && onSelect(file)}
+                            className="group relative aspect-square bg-gray-800 rounded-md overflow-hidden border border-gray-700 hover:border-blue-500 transition-colors cursor-pointer"
+                        >
                             {/* Status Indicator */}
                             <div className="absolute top-2 right-2 z-10 bg-black/50 rounded-full p-1 backdrop-blur-sm">
                                 {file.available ? (

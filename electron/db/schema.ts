@@ -8,6 +8,7 @@ export const mediaFiles = sqliteTable('media_files', {
     size: integer('size'),
     createdAt: integer('created_at'),
     hash: text('hash'),
+    metadata: text('metadata', { mode: 'json' }),
 });
 
 export const thumbnails = sqliteTable('thumbnails', {

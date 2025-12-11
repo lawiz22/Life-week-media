@@ -28,8 +28,21 @@ export function getDb() {
       type TEXT NOT NULL,
       size INTEGER,
       created_at INTEGER,
-      hash TEXT
+      hash TEXT,
+      metadata TEXT
     );
+  `);
+
+  // Simple migration to add metadata column if missing
+  try {
+    const info = sqlite.prepare("PRAGMA table_info(media_files)").all() as any[];
+    const hasMetadata = info.some(c => c.name === 'metadata');
+    if (!hasMetadata) {
+      sqlite.exec("ALTER TABLE media_files ADD COLUMN metadata TEXT");
+    }
+  } catch (e) { /* ignore */ }
+
+  sqlite.exec(`
 
     CREATE TABLE IF NOT EXISTS thumbnails (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
