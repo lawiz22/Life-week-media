@@ -181,7 +181,8 @@ app.whenReady().then(() => {
   ipcMain.handle('get-media-stats', async (_, type: string) => {
     const db = getDb();
     const result = db.select({
-      createdAt: schema.mediaFiles.createdAt
+      createdAt: schema.mediaFiles.createdAt,
+      metadata: schema.mediaFiles.metadata
     })
       .from(schema.mediaFiles)
       .where(eq(schema.mediaFiles.type, type))
@@ -259,4 +260,15 @@ app.whenReady().then(() => {
       return { success: false };
     }
   });
+
+  ipcMain.handle('check-file-exists', async (_, filePath: string) => {
+    const fs = await import('fs');
+    try {
+      await fs.promises.access(filePath, fs.constants.F_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 })
+

@@ -14,16 +14,17 @@ export interface MediaFile {
 interface MediaGridProps {
     type: string;
     onSelect?: (file: MediaFile) => void;
+    refreshKey?: number;
 }
 
-export function MediaGrid({ type, onSelect }: MediaGridProps) {
+export function MediaGrid({ type, onSelect, refreshKey }: MediaGridProps) {
     const [files, setFiles] = useState<MediaFile[]>([]);
     const [loading, setLoading] = useState(true);
     const [showStats, setShowStats] = useState(false);
 
     useEffect(() => {
         loadFiles();
-    }, [type]);
+    }, [type, refreshKey]);
 
     const loadFiles = async () => {
         try {

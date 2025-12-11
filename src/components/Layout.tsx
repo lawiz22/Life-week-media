@@ -11,9 +11,10 @@ interface LayoutProps {
     children: React.ReactNode;
     activeTab: Tab;
     onTabChange: (tab: Tab) => void;
+    onScanComplete?: () => void;
 }
 
-export function Layout({ children, activeTab, onTabChange }: LayoutProps) {
+export function Layout({ children, activeTab, onTabChange, onScanComplete }: LayoutProps) {
     const [isScanning, setIsScanning] = useState(false);
     const [scanProgress, setScanProgress] = useState<{ status: string; file?: string; description?: string } | null>(null);
     const [scanResult, setScanResult] = useState<ScanResult | null>(null);
@@ -35,8 +36,6 @@ export function Layout({ children, activeTab, onTabChange }: LayoutProps) {
             setScanProgress(progress);
         };
 
-        // Assuming invoke/on is exposed via contextBridge or preload
-        // If simply window.ipcRenderer, ensure types are correct globally or allow any
         if (window.ipcRenderer) {
             window.ipcRenderer.on('scan-progress', handleProgress);
         }
@@ -55,27 +54,21 @@ export function Layout({ children, activeTab, onTabChange }: LayoutProps) {
             const path = await window.ipcRenderer?.invoke('select-directory');
             if (path) {
                 setIsScanning(true);
-                setScanResult(null); // Reset previous results
+                setScanResult(null);
                 setScanProgress({ status: 'scanning', description: 'Starting scan...' });
 
-                console.log('Scanning:', path);
-                // Pass includeSubfolders option
                 const result = await window.ipcRenderer?.invoke('start-scan', path, { includeSubfolders });
-                console.log('Scan result:', result);
 
-                // Show results instead of alert
                 setScanResult(result);
+                // Trigger refresh immediately upon completion
+                if (onScanComplete) onScanComplete();
             } else {
-                // Cancelled
                 setIsScanning(false);
             }
         } catch (e) {
             console.error(e);
             alert('Scan failed: ' + (e instanceof Error ? e.message : String(e)));
             setIsScanning(false);
-        } finally {
-            // Do NOT clear isScanning here if we have a result, wait for user to close modal
-            // Only clear if error or cancelled (handled above)
         }
     };
 

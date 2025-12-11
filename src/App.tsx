@@ -11,25 +11,30 @@ type Tab = 'life-weeks' | 'pictures' | 'video' | 'music' | 'projects' | 'documen
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('life-weeks')
   const [selectedMedia, setSelectedMedia] = useState<MediaFile | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const handleTabChange = (t: Tab) => {
     setActiveTab(t)
     setSelectedMedia(null)
   }
 
+  const handleScanComplete = () => {
+    setRefreshKey(prev => prev + 1)
+  }
+
   return (
-    <Layout activeTab={activeTab} onTabChange={handleTabChange}>
+    <Layout activeTab={activeTab} onTabChange={handleTabChange} onScanComplete={handleScanComplete}>
       {selectedMedia ? (
         <ImageDetail media={selectedMedia} onBack={() => setSelectedMedia(null)} />
       ) : (
         <>
-          {activeTab === 'life-weeks' && <LifeWeeks />}
-          {activeTab === 'pictures' && <MediaGrid type="image" onSelect={setSelectedMedia} />}
-          {activeTab === 'video' && <MediaGrid type="video" />}
-          {activeTab === 'music' && <MediaGrid type="audio" />}
-          {activeTab === 'documents' && <MediaGrid type="document" />}
-          {activeTab === 'projects' && <MediaGrid type="project" />}
-          {activeTab === 'duplicates' && <DuplicatesList />}
+          {activeTab === 'life-weeks' && <LifeWeeks refreshKey={refreshKey} />}
+          {activeTab === 'pictures' && <MediaGrid type="image" onSelect={setSelectedMedia} refreshKey={refreshKey} />}
+          {activeTab === 'video' && <MediaGrid type="video" refreshKey={refreshKey} />}
+          {activeTab === 'music' && <MediaGrid type="audio" refreshKey={refreshKey} />}
+          {activeTab === 'documents' && <MediaGrid type="document" refreshKey={refreshKey} />}
+          {activeTab === 'projects' && <MediaGrid type="project" refreshKey={refreshKey} />}
+          {activeTab === 'duplicates' && <DuplicatesList refreshKey={refreshKey} />}
         </>
       )}
     </Layout>

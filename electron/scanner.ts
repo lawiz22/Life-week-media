@@ -148,23 +148,74 @@ export class FileScanner {
                         tiff: true,
                         xmp: true,
                         icc: false, // ICC often invalid UTF8, skip for safety
-                        // ifd0/ifd1 are handled under tiff or specific blocks, explicit boolean types cause TS issues
                         exif: true,
                         gps: true,
                         interop: true,
                     });
 
+                    // Sanitize Dates: Filter out any individual date that is pre-1970
+                    const dateKeys = ['ModifyDate', 'DateTimeOriginal', 'CreateDate', 'modify_date', 'date_time_original', 'create_date'];
+                    let hasValidDate = false;
+
+                    for (const key of dateKeys) {
+                        const val = metadata?.[key];
+                        let isValidField = false;
+
+                        if (val) {
+                            const d = new Date(val);
+                            if (!isNaN(d.getTime()) && d.getFullYear() >= 1970) {
+                                isValidField = true;
+                                hasValidDate = true;
+                            }
+                        }
+
+                        // If field exists but is invalid (e.g. 1899), delete it so UI doesn't use it
+                        // metadata is possibly null? exifr returns promise, resolves to object or undefined.
+                        if (metadata && val && !isValidField) {
+                            console.log(`[Exif] Invalid date for ${key}: ${val}. Removing.`);
+                            delete metadata[key];
+                        }
+                    }
+
+                    if (!metadata) metadata = {};
+
+                    if (!hasValidDate) {
+                        console.log(`[Exif] Warning: No valid >1970 date found for ${filePath}. Injecting mtime.`);
+
+                        // Inject safe defaults
+                        metadata.ModifyDate = stat.mtime;
+                        metadata.modify_date = stat.mtime;
+
+                        if (stat.birthtime.getFullYear() >= 1970) {
+                            metadata.CreateDate = stat.birthtime;
+                            metadata.create_date = stat.birthtime;
+                        } else {
+                            metadata.CreateDate = stat.mtime;
+                            metadata.create_date = stat.mtime;
+                        }
+
+                        metadata.fallback = true;
+                    }
+
                     console.log(`[Exif] Finished reading: ${filePath}`);
                 } catch (e) {
                     console.error(`Metadata parsing failed for ${filePath}`, e);
                     console.log(`[Exif] Fallback: Using file modification time.`);
-                    // Fallback to minimal metadata from stat so date is correct in UI
+
                     metadata = {
                         modify_date: stat.mtime,
                         ModifyDate: stat.mtime,
                         fallback: true,
                         error: (e as Error).message
                     };
+
+                    if (stat.birthtime.getFullYear() >= 1970) {
+                        metadata.CreateDate = stat.birthtime;
+                        metadata.create_date = stat.birthtime;
+                    } else {
+                        metadata.CreateDate = stat.mtime;
+                        metadata.create_date = stat.mtime;
+                    }
                 }
 
                 if (metadata) {

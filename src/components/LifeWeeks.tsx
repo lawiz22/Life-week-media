@@ -7,7 +7,11 @@ interface LifeStage {
     endAge: number;
 }
 
-export function LifeWeeks() {
+interface LifeWeeksProps {
+    refreshKey?: number;
+}
+
+export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
     const [dob, setDob] = useState<string | null>(null);
     const [stages, setStages] = useState<LifeStage[]>([]);
     const [loading, setLoading] = useState(true);
@@ -21,6 +25,7 @@ export function LifeWeeks() {
     useEffect(() => {
         const load = async () => {
             const settingsPromise = window.ipcRenderer?.invoke('get-settings');
+            // get-media-stats now returns metadata
             const statsPromise = window.ipcRenderer?.invoke('get-media-stats', 'image');
 
             const [settings, stats] = await Promise.all([settingsPromise, statsPromise]);
@@ -33,14 +38,30 @@ export function LifeWeeks() {
             }
 
             if (stats && dobVal) {
-                // Calculate week counts
                 const birthTime = new Date(dobVal).getTime();
                 const counts: Record<number, number> = {};
 
-                stats.forEach((item: { createdAt: number }) => {
-                    if (!item.createdAt) return;
-                    const diffTime = item.createdAt - birthTime;
-                    if (diffTime < 0) return; // Created before birth?!
+                stats.forEach((item: { createdAt: number; metadata?: any }) => {
+                    let itemDate = item.createdAt;
+
+                    // Try to get date from metadata
+                    if (item.metadata) {
+                        const m = item.metadata;
+                        const dateStr = m.DateTimeOriginal || m.date_time_original || m.CreateDate || m.create_date || m.ModifyDate || m.modify_date;
+                        if (dateStr) {
+                            try {
+                                const d = new Date(dateStr);
+                                if (!isNaN(d.getTime())) {
+                                    itemDate = d.getTime();
+                                }
+                            } catch (e) { /* ignore parse error */ }
+                        }
+                    }
+
+                    if (!itemDate) return;
+                    const diffTime = itemDate - birthTime;
+
+                    // Allow for slightly before birth (pre-natal?) or just ignore
                     const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
                     if (diffWeeks >= 0 && diffWeeks < TOTAL_WEEKS) {
                         counts[diffWeeks] = (counts[diffWeeks] || 0) + 1;
@@ -52,7 +73,7 @@ export function LifeWeeks() {
             setLoading(false);
         };
         load();
-    }, []);
+    }, [refreshKey]);
 
     // Calculate age for a given week index
     const getStageForWeek = (weekIndex: number) => {
@@ -77,6 +98,16 @@ export function LifeWeeks() {
         return weekIndex % 52 === 0;
     }
 
+    const getWeekDateRange = (weekIndex: number) => {
+        if (!dob) return '';
+        const birthDate = new Date(dob);
+        const weekStart = new Date(birthDate.getTime() + weekIndex * 7 * 24 * 60 * 60 * 1000);
+        const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
+
+        const formatDate = (d: Date) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        return `${formatDate(weekStart)} - ${formatDate(weekEnd)}`;
+    };
+
     return (
         <div className="p-8 flex justify-center">
             <div className="inline-block">
@@ -95,6 +126,7 @@ export function LifeWeeks() {
                             const stage = getStageForWeek(i);
                             const isPast = i <= currentWeekIndex;
                             const count = imageCounts[i] || 0;
+                            const dateRange = getWeekDateRange(i);
 
                             return (
                                 <div
@@ -106,7 +138,7 @@ export function LifeWeeks() {
                                         borderColor: count > 0 ? '#fff' : (matchesBirthday(i) ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)'),
                                         borderWidth: count > 0 ? '1.5px' : '1px'
                                     }}
-                                    title={`Week ${i} (Age ${Math.floor(i / 52)}) - ${stage?.name || 'Unknown'}\n${count > 0 ? `📸 ${count} Images` : ''}`}
+                                    title={`Week ${i} (Age ${Math.floor(i / 52)})\n${dateRange}\nStage: ${stage?.name || 'Unknown'}${count > 0 ? `\n📸 ${count} Images` : ''}`}
                                 />
                             );
                         })}

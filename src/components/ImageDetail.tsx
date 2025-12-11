@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MediaFile } from './MediaGrid';
 
 interface ImageDetailProps {
@@ -18,9 +18,9 @@ export function ImageDetail({ media, onBack }: ImageDetailProps) {
         // ExifTools returns keys in varying formats depending on version/config
         // User dump shows snake_case (e.g. modify_date)
         const rawDate =
-            metadata?.ModifyDate || metadata?.modify_date ||
             metadata?.DateTimeOriginal || metadata?.date_time_original || metadata?.dateTimeOriginal ||
-            metadata?.CreateDate || metadata?.create_date;
+            metadata?.CreateDate || metadata?.create_date ||
+            metadata?.ModifyDate || metadata?.modify_date;
 
         if (rawDate) {
             // ExifTool often returns a proper Date object or a string resembling "2023:12:25 10:00:00"
@@ -121,6 +121,20 @@ export function ImageDetail({ media, onBack }: ImageDetailProps) {
         // Exiftool is mostly flat.
         .sort(([a], [b]) => a.localeCompare(b)) : [];
 
+    const [isAvailable, setIsAvailable] = useState<boolean>(true);
+    const [showLightbox, setShowLightbox] = useState(false);
+
+    useEffect(() => {
+        // Check if file exists on disk
+        const checkAvailability = async () => {
+            if (window.ipcRenderer) {
+                const exists = await window.ipcRenderer.invoke('check-file-exists', media.filepath);
+                setIsAvailable(exists);
+            }
+        };
+        checkAvailability();
+    }, [media.filepath]);
+
     return (
         <div className="flex flex-col h-full bg-gray-950 text-white relative">
             {/* Top Bar */}
@@ -151,16 +165,28 @@ export function ImageDetail({ media, onBack }: ImageDetailProps) {
                     ></div>
 
                     {/* Main Image */}
-                    <img
-                        src={`media://${encodeURIComponent(media.filepath)}`}
-                        alt={media.filename}
-                        className="max-w-full max-h-full object-contain relative z-10 shadow-2xl"
-                        onError={(e) => {
-                            const img = e.currentTarget;
-                            img.src = `media://thumbnail/${media.id}`;
-                            img.classList.add('opacity-50', 'grayscale');
-                        }}
-                    />
+                    <div className="relative z-10 max-w-full max-h-full flex flex-col items-center">
+                        <img
+                            src={isAvailable ? `media://${encodeURIComponent(media.filepath)}` : `media://thumbnail/${media.id}`}
+                            alt={media.filename}
+                            onClick={() => isAvailable && setShowLightbox(true)}
+                            className={`max-w-full max-h-[80vh] object-contain shadow-2xl transition-all duration-300 ${isAvailable ? 'cursor-zoom-in hover:scale-[1.01]' : 'opacity-40 grayscale cursor-not-allowed'}`}
+                            onError={(e) => {
+                                const img = e.currentTarget;
+                                // If main load fails, fall back to thumbnail and mark unavailable
+                                if (isAvailable) setIsAvailable(false);
+                                img.src = `media://thumbnail/${media.id}`;
+                            }}
+                        />
+                        {!isAvailable && (
+                            <div className="mt-4 bg-red-900/50 text-red-200 px-4 py-2 rounded-full flex items-center gap-2 border border-red-700/50 backdrop-blur-md">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                </svg>
+                                <span className="text-sm font-medium">Source File Offline</span>
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* Sidebar - Metadata */}
@@ -207,6 +233,29 @@ export function ImageDetail({ media, onBack }: ImageDetailProps) {
                 </div>
             </div>
 
+            {/* Lightbox / Full Screen View (Only if available) */}
+            {showLightbox && isAvailable && (
+                <div
+                    className="fixed inset-0 z-[100] bg-black flex items-center justify-center animate-in fade-in duration-200"
+                    onClick={() => setShowLightbox(false)}
+                >
+                    <button
+                        className="absolute top-4 right-4 text-white/50 hover:text-white p-2"
+                        onClick={() => setShowLightbox(false)}
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                    <img
+                        src={`media://${encodeURIComponent(media.filepath)}`}
+                        alt={media.filename}
+                        className="max-w-[95vw] max-h-[95vh] object-contain"
+                        onClick={(e) => e.stopPropagation()} // Prevent closing when clicking image itself? Or allow for pan/zoom later. For now let's allow closing on background.
+                    />
+                </div>
+            )}
+
             {/* Full Metadata Overlay Modal */}
             {showAllMeta && (
                 <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-md flex justify-end animate-in fade-in duration-200">
@@ -220,9 +269,9 @@ export function ImageDetail({ media, onBack }: ImageDetailProps) {
                         {/* Error/fallback warning */}
                         {(metadata?.fallback || metadata?.error) && (
                             <div className="p-4 bg-yellow-900/30 border-b border-yellow-700/50 text-yellow-200 text-sm">
-                                <p className="font-bold">⚠️ Metadata Extraction Incomplete</p>
+                                <p className="font-bold">⚠️ Using Backup Date</p>
                                 <p className="opacity-80 mt-1">
-                                    Full EXIF data could not be read. Showing basic file information instead.
+                                    The camera's original date was missing or invalid, so we're using the file's created date instead.
                                 </p>
                                 {metadata.error && (
                                     <p className="font-mono text-xs mt-2 bg-black/30 p-2 rounded">

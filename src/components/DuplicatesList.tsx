@@ -7,13 +7,17 @@ interface MediaFile {
     size: number;
 }
 
-export function DuplicatesList() {
+interface DuplicatesListProps {
+    refreshKey?: number;
+}
+
+export function DuplicatesList({ refreshKey }: DuplicatesListProps) {
     const [loading, setLoading] = useState(true);
     const [duplicates, setDuplicates] = useState<MediaFile[]>([]);
 
     useEffect(() => {
         loadDuplicates();
-    }, []);
+    }, [refreshKey]);
 
     const loadDuplicates = async () => {
         try {
