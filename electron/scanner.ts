@@ -42,7 +42,7 @@ export class FileScanner {
 
     async scanDirectory(
         dirPath: string,
-        options: { includeSubfolders: boolean; scanProjects?: boolean } = { includeSubfolders: false, scanProjects: false },
+        options: { includeSubfolders: boolean; scanProjects?: boolean; scanType?: string } = { includeSubfolders: false, scanProjects: false },
         onProgress?: (progress: ScanProgress) => void,
         signal?: AbortSignal
     ): Promise<ScanResult> {
@@ -65,7 +65,7 @@ export class FileScanner {
     async walk(
         dir: string,
         result: ScanResult,
-        options: { includeSubfolders: boolean; scanProjects?: boolean },
+        options: { includeSubfolders: boolean; scanProjects?: boolean; scanType?: string },
         onProgress?: (progress: ScanProgress) => void,
         signal?: AbortSignal
     ) {
@@ -107,7 +107,7 @@ export class FileScanner {
     private async processFile(
         filePath: string,
         result: ScanResult,
-        options: { scanProjects?: boolean },
+        options: { scanProjects?: boolean; scanType?: string },
         onProgress?: (progress: ScanProgress) => void,
         signal?: AbortSignal
     ) {
@@ -129,7 +129,25 @@ export class FileScanner {
 
             // Only import relevant types
             if (type === 'unknown') return;
-            if (type === 'project' && !options.scanProjects) return;
+            if (type === 'project' && !options.scanProjects && options.scanType !== 'projects') return;
+
+            // Filter by scanType if provided
+            if (options.scanType && options.scanType !== type) {
+                // Special case: Projects tab might trigger "project" scan
+                if (options.scanType === 'projects' && type === 'project') {
+                    // Pass
+                } else if (options.scanType === 'pictures' && type === 'image') {
+                    // Pass
+                } else if (options.scanType === 'video' && type === 'video') {
+                    // Pass
+                } else if (options.scanType === 'music' && type === 'audio') {
+                    // Pass
+                } else if (options.scanType === 'documents' && type === 'document') {
+                    // Pass
+                } else {
+                    return; // Skip mismatch
+                }
+            }
 
             // Filter Small Images (Junk/Thumbnails)
             if (type === 'image') {
@@ -246,7 +264,33 @@ export class FileScanner {
                     console.log(`[Thumbnail] Finished video thumbnail: ${filePath}`);
                 } catch (vidErr) {
                     if ((vidErr as Error).message === 'Scan cancelled') throw vidErr;
-                    console.error(`Failed to generate video thumbnail for ${filePath}`, vidErr);
+                    console.error(`Failed to generate video thumbnail for ${filePath}:`, vidErr);
+
+                    // Fallback: Generic Video Icon
+                    try {
+                        const genericBuffer = await sharp({
+                            create: {
+                                width: 300,
+                                height: 300,
+                                channels: 4,
+                                background: { r: 15, g: 23, b: 42, alpha: 1 } // slate-900
+                            }
+                        })
+                            .composite([{
+                                input: Buffer.from('<svg width="150" height="150" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>'),
+                                gravity: 'center'
+                            }])
+                            .webp({ quality: 80 })
+                            .toBuffer();
+
+                        this.db.insert(thumbnails).values({
+                            mediaId: mediaId,
+                            data: genericBuffer,
+                            format: 'webp'
+                        }).run();
+                    } catch (genErr) {
+                        console.error('Failed to create fallback video thumbnail', genErr);
+                    }
                 }
 
             } else if (type === 'audio') {
@@ -444,7 +488,7 @@ export class FileScanner {
                         ModifyDate: stat.mtime,
                         fallback: true,
                         error: (e as Error).message
-                    };
+                    } as any;
 
                     if (stat.birthtime.getFullYear() >= 1970) {
                         metadata.CreateDate = stat.birthtime;
@@ -466,22 +510,97 @@ export class FileScanner {
                     }
                 }
             } else if (type === 'video') {
-                // For videos, skip expensive parsing and just use file stats immediately
-                const metadata: any = {
-                    ModifyDate: stat.mtime,
-                    modify_date: stat.mtime,
-                    fallback: true
-                };
+                // Video Metadata via ffprobe
+                if (onProgress) onProgress({ status: 'processing', file: filePath, description: 'Extracting video metadata...' });
+                try {
+                    const videoMeta: any = {};
 
-                if (stat.birthtime.getFullYear() >= 1970) {
-                    metadata.CreateDate = stat.birthtime;
-                    metadata.create_date = stat.birthtime;
-                } else {
-                    metadata.CreateDate = stat.mtime;
-                    metadata.create_date = stat.mtime;
+                    await new Promise((resolve, reject) => {
+                        ffmpeg.ffprobe(filePath, (err: any, data: any) => {
+                            if (err) {
+                                reject(err);
+                                return;
+                            }
+
+                            // Extract useful streams
+                            const videoStream = data.streams.find((s: any) => s.codec_type === 'video');
+                            const audioStream = data.streams.find((s: any) => s.codec_type === 'audio');
+                            const format = data.format;
+
+                            // Basic Tags
+                            videoMeta.duration = format.duration; // seconds
+                            videoMeta.bitrate = format.bit_rate;
+                            videoMeta.format_name = format.format_name;
+                            videoMeta.format_long_name = format.format_long_name;
+
+                            // Video specifics
+                            if (videoStream) {
+                                videoMeta.width = videoStream.width;
+                                videoMeta.height = videoStream.height;
+                                videoMeta.codec = videoStream.codec_name;
+                                videoMeta.fps = videoStream.r_frame_rate; // often fraction "30/1"
+                            }
+
+                            // Audio specifics
+                            if (audioStream) {
+                                videoMeta.audio_codec = audioStream.codec_name;
+                                videoMeta.audio_channels = audioStream.channels;
+                            }
+
+                            // Tags (Date/Creation)
+                            const tags = format.tags || {};
+                            // Common creation keys
+                            const dateStr = tags.creation_time || tags.date || tags.year;
+                            if (dateStr) {
+                                try {
+                                    const d = new Date(dateStr);
+                                    if (!isNaN(d.getTime())) {
+                                        videoMeta.CreateDate = d;
+                                        videoMeta.create_date = d;
+                                        videoMeta.year = d.getFullYear();
+                                    }
+                                } catch { }
+                            }
+
+                            // Check "rotate" to handle vertical video dimensions if needed
+                            // (Usually player handles it, but good to know)
+                            if (videoStream && videoStream.tags && videoStream.tags.rotate) {
+                                videoMeta.rotate = videoStream.tags.rotate;
+                            }
+
+                            resolve(null);
+                        });
+                    });
+
+                    // Add fallback dates if ffprobe failed to find creation_time
+                    if (!videoMeta.CreateDate) {
+                        if (stat.birthtime.getFullYear() >= 1970) {
+                            videoMeta.CreateDate = stat.birthtime;
+                        } else {
+                            videoMeta.CreateDate = stat.mtime;
+                        }
+                    }
+
+                    // Always set modify date from file system as fallback/reference
+                    videoMeta.ModifyDate = stat.mtime;
+
+                    this.db.update(mediaFiles)
+                        .set({ metadata: JSON.stringify(videoMeta) })
+                        .where(eq(mediaFiles.id, mediaId))
+                        .run();
+
+                    console.log(`[Video] Metadata extracted for ${path.basename(filePath)}`);
+
+                } catch (probeErr) {
+                    console.error(`[Video] Failed to probe ${filePath}: ${(probeErr as Error).message}`);
+                    // Fallback to basic stats
+                    const metadata = {
+                        ModifyDate: stat.mtime,
+                        fallback: true,
+                        error: (probeErr as Error).message
+                    };
+                    this.db.update(mediaFiles).set({ metadata }).where(eq(mediaFiles.id, mediaId)).run();
                 }
-
-                this.db.update(mediaFiles).set({ metadata }).where(eq(mediaFiles.id, mediaId)).run();
             }
 
             result.added++;

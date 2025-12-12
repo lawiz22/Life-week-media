@@ -23,6 +23,12 @@ LifeWeeks Media is a powerful, local-first desktop application designed to bridg
   - 📄 **Documents**: `.pdf`, `.doc`, `.txt`
   - 🛠️ **Projects**: *(Coming Soon)* Specialized handling for DAW & IDE projects.
 - **Duplicate Detection**: Identify and manage duplicate files based on content hash, not just filenames.
+- **Enhanced Navigation**:
+  - **Grid Persistence**: Remembers your page and view settings.
+  - **Detail Browsing**: Navigate between photos with arrow keys or buttons without returning to the grid.
+- **Geo-Location**:
+  - **GPS Integration**: Automatically extracts GPS coordinates from photos.
+  - **Map View**: One-click access to view photo locations on Google Maps.
 
 ### ⚡ Performance & Privacy
 - **Local SQLite Database**: All metadata is stored locally using SQLite. No data leaves your machine.

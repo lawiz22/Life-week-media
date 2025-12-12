@@ -4,10 +4,23 @@ import { MediaFile } from './MediaGrid';
 interface ImageDetailProps {
     media: MediaFile;
     onBack: () => void;
+    onNext?: () => void;
+    onPrev?: () => void;
 }
 
-export function ImageDetail({ media, onBack }: ImageDetailProps) {
+export function ImageDetail({ media, onBack, onNext, onPrev }: ImageDetailProps) {
     const [showAllMeta, setShowAllMeta] = useState(false);
+
+    // Keyboard Navigation
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'ArrowRight' && onNext) onNext();
+            if (e.key === 'ArrowLeft' && onPrev) onPrev();
+            if (e.key === 'Escape') onBack();
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [onNext, onPrev, onBack]);
 
     // Safely parse metadata if string (from DB) or use object
     let metadata: any = {};
@@ -88,10 +101,9 @@ export function ImageDetail({ media, onBack }: ImageDetailProps) {
 
     // Helper to format GPS
     const getGPS = () => {
-        // Exiftool returns GPSLatitude / GPSLongitude as numbers (decimal) usually
-        // Exiftool usually returns numbers, check both cases
-        const lat = metadata?.GPSLatitude || metadata?.gps_latitude;
-        const lon = metadata?.GPSLongitude || metadata?.gps_longitude;
+        // Check various possible keys for GPS
+        const lat = metadata?.latitude ?? metadata?.GPSLatitude ?? metadata?.gps_latitude ?? metadata?.gps?.latitude;
+        const lon = metadata?.longitude ?? metadata?.GPSLongitude ?? metadata?.gps_longitude ?? metadata?.gps?.longitude;
 
         if (typeof lat === 'number' && typeof lon === 'number') {
             return `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
@@ -99,21 +111,44 @@ export function ImageDetail({ media, onBack }: ImageDetailProps) {
         return 'N/A';
     };
 
+    // Helper to format Duration (seconds to MM:SS)
+    const formatDuration = (sec: number) => {
+        if (!sec) return undefined;
+        const m = Math.floor(sec / 60);
+        const s = Math.floor(sec % 60);
+        return `${m}:${s.toString().padStart(2, '0')}`;
+    };
+
     // Key stats
     const getKeyStats = () => {
         if (!metadata) return [];
         const valid = (v: any) => v !== undefined && v !== null && v !== '';
 
-        const items = [
-            { label: 'Camera', value: `${metadata.Make || ''} ${metadata.Model || ''}`.trim() },
-            { label: 'Lens', value: metadata.LensModel || metadata.LensType || metadata.LensSpec || metadata.LensID },
-            { label: 'ISO', value: metadata.ISO },
-            { label: 'Aperture', value: metadata.FNumber ? `f/${metadata.FNumber}` : undefined },
-            { label: 'Shutter', value: metadata.ExposureTime ? (metadata.ExposureTime < 1 ? `1/${Math.round(1 / metadata.ExposureTime)}s` : `${metadata.ExposureTime}s`) : undefined },
-            { label: 'Focal Length', value: metadata.FocalLength ? `${metadata.FocalLength}mm` : undefined },
-            { label: 'Dimensions', value: (metadata.ImageWidth && metadata.ImageHeight) ? `${metadata.ImageWidth} x ${metadata.ImageHeight}` : undefined },
-            { label: 'File Size', value: metadata.FileSize }, // ex: "35 MB" string from exiftool sometimes
-        ];
+        let items: { label: string; value: any }[] = [];
+
+        if (media.type === 'video') {
+            items = [
+                { label: 'Duration', value: formatDuration(metadata.duration) },
+                { label: 'Resolution', value: (metadata.width && metadata.height) ? `${metadata.width}x${metadata.height}` : undefined },
+                { label: 'Format', value: metadata.format_long_name || metadata.format_name },
+                { label: 'Video Codec', value: metadata.codec },
+                { label: 'Audio Codec', value: metadata.audio_codec },
+                { label: 'FPS', value: metadata.fps },
+                { label: 'Bitrate', value: metadata.bitrate ? `${Math.round(metadata.bitrate / 1000)} kbps` : undefined },
+                { label: 'Size', value: metadata.FileSize },
+            ];
+        } else {
+            items = [
+                { label: 'Camera', value: `${metadata.Make || ''} ${metadata.Model || ''}`.trim() },
+                { label: 'Lens', value: metadata.LensModel || metadata.LensType || metadata.LensSpec || metadata.LensID },
+                { label: 'ISO', value: metadata.ISO },
+                { label: 'Aperture', value: metadata.FNumber ? `f/${metadata.FNumber}` : undefined },
+                { label: 'Shutter', value: metadata.ExposureTime ? (metadata.ExposureTime < 1 ? `1/${Math.round(1 / metadata.ExposureTime)}s` : `${metadata.ExposureTime}s`) : undefined },
+                { label: 'Focal Length', value: metadata.FocalLength ? `${metadata.FocalLength}mm` : undefined },
+                { label: 'Dimensions', value: (metadata.ImageWidth && metadata.ImageHeight) ? `${metadata.ImageWidth} x ${metadata.ImageHeight}` : undefined },
+                { label: 'File Size', value: metadata.FileSize }, // ex: "35 MB" string from exiftool sometimes
+            ];
+        }
 
         return items.filter(i => valid(i.value));
     };
@@ -163,7 +198,7 @@ export function ImageDetail({ media, onBack }: ImageDetailProps) {
 
             {/* Content w/ Scrollable Area */}
             <div className="flex-1 overflow-hidden flex flex-col md:flex-row relative z-10">
-                {/* Image Area */}
+                {/* Image/Video Area */}
                 <div className="flex-1 bg-black flex items-center justify-center p-4 relative overflow-hidden">
                     {/* Background Blur */}
                     <div
@@ -171,23 +206,58 @@ export function ImageDetail({ media, onBack }: ImageDetailProps) {
                         style={{ backgroundImage: `url('media://thumbnail/${media.id}')`, backgroundSize: 'cover', backgroundPosition: 'center' }}
                     ></div>
 
-                    {/* Main Image or Audio Player */}
-                    <div className="relative z-10 max-w-full max-h-full flex flex-col items-center justify-center p-8 w-full">
-                        <img
-                            src={isAvailable && media.type !== 'audio' ? `media://${encodeURIComponent(media.filepath)}` : `media://thumbnail/${media.id}`}
-                            alt={media.filename}
-                            onClick={() => isAvailable && media.type !== 'audio' && setShowLightbox(true)}
-                            className={`max-w-full max-h-[60vh] object-contain shadow-2xl rounded-lg transition-all duration-300 
-                                ${media.type === 'audio' ? 'w-96 h-96 shadow-blue-900/40' : ''}
-                                ${isAvailable && media.type !== 'audio' ? 'cursor-zoom-in hover:scale-[1.01]' : ''}
-                                ${!isAvailable && media.type !== 'audio' ? 'opacity-40 grayscale cursor-not-allowed' : ''}
-                            `}
-                            onError={(e) => {
-                                const img = e.currentTarget;
-                                if (isAvailable && media.type !== 'audio') setIsAvailable(false);
-                                img.src = `media://thumbnail/${media.id}`;
-                            }}
-                        />
+                    {/* Main Content */}
+                    <div className="relative z-10 max-w-full max-h-full flex flex-col items-center justify-center p-8 w-full h-full group">
+
+                        {/* Nav Arrows */}
+                        {onPrev && (
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onPrev(); }}
+                                className="absolute left-4 top-1/2 -translate-y-1/2 p-4 bg-black/30 hover:bg-black/60 rounded-full text-white/50 hover:text-white transition-all backdrop-blur-sm z-50 opacity-0 group-hover:opacity-100"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                </svg>
+                            </button>
+                        )}
+                        {onNext && (
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onNext(); }}
+                                className="absolute right-4 top-1/2 -translate-y-1/2 p-4 bg-black/30 hover:bg-black/60 rounded-full text-white/50 hover:text-white transition-all backdrop-blur-sm z-50 opacity-0 group-hover:opacity-100"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                </svg>
+                            </button>
+                        )}
+
+                        {/* Video Player */}
+                        {media.type === 'video' && isAvailable ? (
+                            <video
+                                controls
+                                autoPlay
+                                className="max-w-full max-h-full shadow-2xl rounded-lg bg-black"
+                                src={`media://${encodeURIComponent(media.filepath)}`}
+                                poster={`media://thumbnail/${media.id}`}
+                            />
+                        ) : (
+                            /* Image or Audio Artwork */
+                            <img
+                                src={isAvailable && media.type !== 'audio' ? `media://${encodeURIComponent(media.filepath)}` : `media://thumbnail/${media.id}`}
+                                alt={media.filename}
+                                onClick={() => isAvailable && media.type !== 'audio' && setShowLightbox(true)}
+                                className={`max-w-full max-h-full object-contain shadow-2xl rounded-lg transition-all duration-300 
+                                    ${media.type === 'audio' ? 'w-96 h-96 shadow-blue-900/40' : ''}
+                                    ${isAvailable && media.type !== 'audio' ? 'cursor-zoom-in hover:scale-[1.01]' : ''}
+                                    ${!isAvailable && media.type !== 'audio' ? 'opacity-40 grayscale cursor-not-allowed' : ''}
+                                `}
+                                onError={(e) => {
+                                    const img = e.currentTarget;
+                                    if (isAvailable && media.type !== 'audio') setIsAvailable(false);
+                                    img.src = `media://thumbnail/${media.id}`;
+                                }}
+                            />
+                        )}
 
                         {/* Audio Player */}
                         {media.type === 'audio' && isAvailable && (
@@ -259,7 +329,22 @@ export function ImageDetail({ media, onBack }: ImageDetailProps) {
                         {media.type !== 'audio' && (
                             <div>
                                 <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">GPS Location</h3>
-                                <p className={`font-mono ${gps !== 'N/A' ? 'text-blue-400' : 'text-gray-600'}`}>{gps}</p>
+                                <p className={`font-mono ${gps !== 'N/A' ? 'text-blue-400' : 'text-gray-600'} break-all`}>{gps}</p>
+                                {gps !== 'N/A' && (
+                                    <button
+                                        onClick={() => {
+                                            const [lat, lon] = gps.split(',').map(s => s.trim());
+                                            window.open(`https://www.google.com/maps/search/?api=1&query=${lat},${lon}`, '_blank');
+                                        }}
+                                        className="mt-2 flex items-center gap-2 text-xs bg-blue-900/30 hover:bg-blue-900/50 text-blue-300 border border-blue-800 px-3 py-1.5 rounded transition-colors"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        </svg>
+                                        View on Google Maps
+                                    </button>
+                                )}
                             </div>
                         )}
 
@@ -305,12 +390,22 @@ export function ImageDetail({ media, onBack }: ImageDetailProps) {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                     </button>
-                    <img
-                        src={`media://${encodeURIComponent(media.filepath)}`}
-                        alt={media.filename}
-                        className="max-w-[95vw] max-h-[95vh] object-contain"
-                        onClick={(e) => e.stopPropagation()} // Prevent closing when clicking image itself? Or allow for pan/zoom later. For now let's allow closing on background.
-                    />
+                    {media.type === 'video' ? (
+                        <video
+                            controls
+                            autoPlay
+                            className="max-w-[95vw] max-h-[95vh] rounded-lg bg-black"
+                            src={`media://${encodeURIComponent(media.filepath)}`}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                    ) : (
+                        <img
+                            src={`media://${encodeURIComponent(media.filepath)}`}
+                            alt={media.filename}
+                            className="max-w-[95vw] max-h-[95vh] object-contain"
+                            onClick={(e) => e.stopPropagation()} // Prevent closing when clicking image itself? Or allow for pan/zoom later. For now let's allow closing on background.
+                        />
+                    )}
                 </div>
             )}
 

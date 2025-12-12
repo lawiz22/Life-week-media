@@ -62,9 +62,19 @@ export function getDb() {
       name TEXT NOT NULL,
       color TEXT NOT NULL,
       start_age INTEGER NOT NULL,
-      end_age INTEGER NOT NULL
+      end_age INTEGER NOT NULL,
+      visible INTEGER DEFAULT 1
     );
   `);
+
+  // Migration for life_stages.visible
+  try {
+    const info = sqlite.prepare("PRAGMA table_info(life_stages)").all() as any[];
+    const hasVisible = info.some(c => c.name === 'visible');
+    if (!hasVisible) {
+      sqlite.exec("ALTER TABLE life_stages ADD COLUMN visible INTEGER DEFAULT 1");
+    }
+  } catch (e) { /* ignore */ }
 
   return dbInstance;
 }

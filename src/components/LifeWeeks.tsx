@@ -78,8 +78,11 @@ export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
     // Calculate age for a given week index
     const getStageForWeek = (weekIndex: number) => {
         const yearIndex = Math.floor(weekIndex / WEEKS_IN_YEAR);
-        // Find stage that covers this year
-        return stages.find(s => yearIndex >= s.startAge && yearIndex < s.endAge);
+        // Sort stages by start age and filter visible
+        const visibleAndSortedStages = stages
+            .filter(stage => (stage as any).visible !== false)
+            .sort((a, b) => a.startAge - b.startAge);
+        return visibleAndSortedStages.find(s => yearIndex >= s.startAge && yearIndex < s.endAge);
     };
 
     if (loading) return <div className="p-8 text-gray-500">Loading visualization...</div>;

@@ -92,10 +92,19 @@ app.whenReady().then(() => {
     // 2. Handle Files (Videos/Images) with Range Support
     try {
       let pathName = request.url.replace(/^media:\/\//, '');
-      if (process.platform === 'win32' && pathName.startsWith('/') && /^[a-zA-Z]:/.test(pathName.slice(1))) {
+      pathName = decodeURIComponent(pathName);
+
+      // 1. Strip leading slash if present (e.g. /C:/Users...)
+      if (pathName.startsWith('/')) {
         pathName = pathName.slice(1);
       }
-      pathName = decodeURIComponent(pathName);
+
+      // 2. Fix missing colon in drive letter (common issue with some URL parsers)
+      // e.g. "C/Users/..." -> "C:/Users/..."
+      if (/^[a-zA-Z]\//.test(pathName)) {
+        pathName = pathName.charAt(0) + ':' + pathName.slice(1);
+      }
+
       const filePath = path.normalize(pathName);
 
       const fs = await import('fs');
@@ -117,6 +126,34 @@ app.whenReady().then(() => {
       if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
       if (ext === '.webp') mimeType = 'image/webp';
 
+      const streamToWeb = (nodeStream: any) => {
+        return new ReadableStream({
+          start(controller) {
+            nodeStream.on('data', (chunk: any) => {
+              try {
+                controller.enqueue(chunk);
+              } catch (e) {
+                // Controller closed or error
+                nodeStream.destroy();
+              }
+            });
+            nodeStream.on('end', () => {
+              try {
+                controller.close();
+              } catch (e) { }
+            });
+            nodeStream.on('error', (err: any) => {
+              try {
+                controller.error(err);
+              } catch (e) { }
+            });
+          },
+          cancel() {
+            nodeStream.destroy();
+          }
+        });
+      };
+
       if (range) {
         // Range Request (Video seeking/streaming)
         const parts = range.replace(/bytes=/, "").split("-");
@@ -125,8 +162,7 @@ app.whenReady().then(() => {
         const chunksize = (end - start) + 1;
 
         const stream = fs.createReadStream(filePath, { start, end });
-        // @ts-ignore
-        const readable = Readable.toWeb(stream);
+        const readable = streamToWeb(stream);
 
         return new Response(readable as any, {
           status: 206,
@@ -141,8 +177,7 @@ app.whenReady().then(() => {
       } else {
         // Full File Request
         const stream = fs.createReadStream(filePath);
-        // @ts-ignore
-        const readable = Readable.toWeb(stream);
+        const readable = streamToWeb(stream);
 
         return new Response(readable as any, {
           status: 200,
@@ -181,7 +216,7 @@ app.whenReady().then(() => {
 
   let scanAbortController: AbortController | null = null;
 
-  ipcMain.handle('start-scan', async (_, dirPath: string, options: { includeSubfolders: boolean }) => {
+  ipcMain.handle('start-scan', async (_, dirPath: string, options: { includeSubfolders: boolean; scanType?: string }) => {
     // Cancel previous scan if exists
     if (scanAbortController) {
       scanAbortController.abort();
@@ -264,16 +299,29 @@ app.whenReady().then(() => {
     const settings = db.select().from(schema.userSettings).all();
     let stages = db.select().from(schema.lifeStages).orderBy(schema.lifeStages.startAge).all();
 
-    // Init default stages if empty
-    if (stages.length === 0) {
+    // Init default stages if empty OR if legacy defaults detected (old 7 stages)
+    const isLegacy = stages.length === 7 && stages[0].name === 'Early Years';
+
+    if (stages.length === 0 || isLegacy) {
+      if (isLegacy) {
+        console.log('Upgrading legacy life stages to new 13-stage defaults');
+        db.delete(schema.lifeStages).run();
+      }
+
       const defaults = [
-        { name: 'Early Years', color: '#60a5fa', startAge: 0, endAge: 5 }, // Blue
-        { name: 'Elementary School', color: '#34d399', startAge: 5, endAge: 11 }, // Green
-        { name: 'Middle School', color: '#a3e635', startAge: 11, endAge: 14 }, // Lime
-        { name: 'High School', color: '#facc15', startAge: 14, endAge: 18 }, // Yellow
-        { name: 'College', color: '#fb923c', startAge: 18, endAge: 22 }, // Orange
-        { name: 'Career / Life', color: '#f87171', startAge: 22, endAge: 65 }, // Red
-        { name: 'Retirement', color: '#a78bfa', startAge: 65, endAge: 90 }, // Purple
+        { name: 'Infancy', color: '#FFB3BA', startAge: 0, endAge: 2, visible: true },
+        { name: 'Early Childhood', color: '#FFDFBA', startAge: 2, endAge: 5, visible: true },
+        { name: 'Middle Childhood', color: '#FFFFBA', startAge: 5, endAge: 9, visible: true },
+        { name: 'Late Childhood', color: '#BAFFC9', startAge: 9, endAge: 12, visible: true },
+        { name: 'Early Adolescence', color: '#BAE1FF', startAge: 12, endAge: 15, visible: true },
+        { name: 'Late Adolescence', color: '#A2C2E0', startAge: 15, endAge: 18, visible: true },
+        { name: 'Early Adulthood', color: '#E6E6FA', startAge: 18, endAge: 25, visible: true },
+        { name: 'Young Adulthood', color: '#D8BFD8', startAge: 25, endAge: 35, visible: true },
+        { name: 'Early Mid-Life', color: '#FFC0CB', startAge: 35, endAge: 45, visible: true },
+        { name: 'Mid-Life', color: '#F08080', startAge: 45, endAge: 55, visible: true },
+        { name: 'Late Mid-Life', color: '#CD5C5C', startAge: 55, endAge: 65, visible: true },
+        { name: 'Early Senior', color: '#8FBC8F', startAge: 65, endAge: 75, visible: true },
+        { name: 'Senior', color: '#4682B4', startAge: 75, endAge: 90, visible: true },
       ];
 
       defaults.forEach(d => db.insert(schema.lifeStages).values(d).run());
@@ -306,7 +354,8 @@ app.whenReady().then(() => {
           name: stage.name,
           color: stage.color,
           startAge: stage.startAge,
-          endAge: stage.endAge
+          endAge: stage.endAge,
+          visible: stage.visible ?? true
         }).run();
       });
 
@@ -317,6 +366,37 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle('reset-life-stages', async () => {
+    const db = getDb();
+    try {
+      db.delete(schema.lifeStages).run();
+
+      const defaults = [
+        { name: 'Infancy', color: '#FFB3BA', startAge: 0, endAge: 2, visible: true },
+        { name: 'Early Childhood', color: '#FFDFBA', startAge: 2, endAge: 5, visible: true },
+        { name: 'Middle Childhood', color: '#FFFFBA', startAge: 5, endAge: 9, visible: true },
+        { name: 'Late Childhood', color: '#BAFFC9', startAge: 9, endAge: 12, visible: true },
+        { name: 'Early Adolescence', color: '#BAE1FF', startAge: 12, endAge: 15, visible: true },
+        { name: 'Late Adolescence', color: '#A2C2E0', startAge: 15, endAge: 18, visible: true },
+        { name: 'Early Adulthood', color: '#E6E6FA', startAge: 18, endAge: 25, visible: true },
+        { name: 'Young Adulthood', color: '#D8BFD8', startAge: 25, endAge: 35, visible: true },
+        { name: 'Early Mid-Life', color: '#FFC0CB', startAge: 35, endAge: 45, visible: true },
+        { name: 'Mid-Life', color: '#F08080', startAge: 45, endAge: 55, visible: true },
+        { name: 'Late Mid-Life', color: '#CD5C5C', startAge: 55, endAge: 65, visible: true },
+        { name: 'Early Senior', color: '#8FBC8F', startAge: 65, endAge: 75, visible: true },
+        { name: 'Senior', color: '#4682B4', startAge: 75, endAge: 90, visible: true },
+      ];
+
+      defaults.forEach(d => db.insert(schema.lifeStages).values(d).run());
+      const stages = db.select().from(schema.lifeStages).orderBy(schema.lifeStages.startAge).all();
+
+      return { success: true, stages };
+    } catch (e) {
+      console.error('Reset stages failed:', e);
+      return { success: false, error: String(e) };
+    }
+  });
+
   ipcMain.handle('check-file-exists', async (_, filePath: string) => {
     const fs = await import('fs');
     try {
@@ -324,6 +404,33 @@ app.whenReady().then(() => {
       return true;
     } catch {
       return false;
+    }
+  });
+  ipcMain.handle('delete-file', async (_, { id, filepath }: { id: number, filepath: string }) => {
+    const fs = await import('fs');
+    const db = getDb();
+
+    try {
+      // 1. Delete from Disk
+      try {
+        await fs.promises.unlink(filepath);
+        console.log(`Deleted file: ${filepath}`);
+      } catch (rmErr) {
+        // If file doesn't exist, we still want to clean up DB
+        if ((rmErr as NodeJS.ErrnoException).code !== 'ENOENT') {
+          throw rmErr;
+        }
+        console.warn(`File not found on disk, cleaning DB only: ${filepath}`);
+      }
+
+      // 2. Delete from DB
+      db.delete(schema.thumbnails).where(eq(schema.thumbnails.mediaId, id)).run();
+      db.delete(schema.mediaFiles).where(eq(schema.mediaFiles.id, id)).run();
+
+      return { success: true };
+    } catch (e) {
+      console.error('Delete failed:', e);
+      return { success: false, error: String(e) };
     }
   });
 })

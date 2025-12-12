@@ -31,4 +31,5 @@ export const lifeStages = sqliteTable('life_stages', {
     color: text('color').notNull(), // Hex
     startAge: integer('start_age').notNull(),
     endAge: integer('end_age').notNull(),
+    visible: integer('visible', { mode: 'boolean' }).default(true),
 });

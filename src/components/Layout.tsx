@@ -57,7 +57,10 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
                 setScanResult(null);
                 setScanProgress({ status: 'scanning', description: 'Starting scan...' });
 
-                const result = await window.ipcRenderer?.invoke('start-scan', path, { includeSubfolders });
+                const result = await window.ipcRenderer?.invoke('start-scan', path, {
+                    includeSubfolders,
+                    scanType: activeTab // Pass active tab as scan type (pictures, video, etc.)
+                });
 
                 setScanResult(result);
                 // Trigger refresh immediately upon completion
@@ -83,6 +86,19 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
             }
         }
     };
+
+    const getImportConfig = () => {
+        switch (activeTab) {
+            case 'pictures': return { label: 'Import Pictures', icon: '+' };
+            case 'video': return { label: 'Import Videos', icon: '+' };
+            case 'music': return { label: 'Import Music', icon: '+' };
+            case 'projects': return { label: 'Import Projects', icon: '+' };
+            case 'documents': return { label: 'Import Documents', icon: '+' };
+            default: return null; // Hide button for other tabs
+        }
+    };
+
+    const importConfig = getImportConfig();
 
     return (
         <div className="flex h-screen bg-gray-950 text-white overflow-hidden font-sans">
@@ -110,40 +126,45 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
                 </nav>
 
                 <div className="mt-auto px-4 py-6 border-t border-gray-800 space-y-3">
-                    <div className="flex items-center gap-2 px-1">
-                        <input
-                            type="checkbox"
-                            id="include-subfolders"
-                            checked={includeSubfolders}
-                            onChange={(e) => setIncludeSubfolders(e.target.checked)}
-                            disabled={isScanning}
-                            className="rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-blue-500/50"
-                        />
-                        <label htmlFor="include-subfolders" className={`text-sm select-none ${isScanning ? 'text-gray-600' : 'text-gray-400'}`}>
-                            Include Subfolders
-                        </label>
-                    </div>
+                    {/* Only show options if import is available */}
+                    {importConfig && (
+                        <div className="flex items-center gap-2 px-1">
+                            <input
+                                type="checkbox"
+                                id="include-subfolders"
+                                checked={includeSubfolders}
+                                onChange={(e) => setIncludeSubfolders(e.target.checked)}
+                                disabled={isScanning}
+                                className="rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-blue-500/50"
+                            />
+                            <label htmlFor="include-subfolders" className={`text-sm select-none ${isScanning ? 'text-gray-600' : 'text-gray-400'}`}>
+                                Include Subfolders
+                            </label>
+                        </div>
+                    )}
 
-                    <button
-                        onClick={handleImport}
-                        disabled={isScanning}
-                        className={`w-full px-4 py-2 rounded-md transition-colors flex items-center justify-center gap-2 font-medium shadow-lg 
-                            ${isScanning
-                                ? 'bg-gray-700 text-gray-500 cursor-not-allowed shadow-none'
-                                : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-900/20'
-                            }`}
-                    >
-                        {isScanning ? (
-                            <>
-                                <div className="animate-spin h-4 w-4 border-2 border-gray-400 border-t-transparent rounded-full"></div>
-                                <span>Scanning...</span>
-                            </>
-                        ) : (
-                            <>
-                                <span>+</span> Import Media
-                            </>
-                        )}
-                    </button>
+                    {importConfig && (
+                        <button
+                            onClick={handleImport}
+                            disabled={isScanning}
+                            className={`w-full px-4 py-2 rounded-md transition-colors flex items-center justify-center gap-2 font-medium shadow-lg 
+                                ${isScanning
+                                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed shadow-none'
+                                    : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-900/20'
+                                }`}
+                        >
+                            {isScanning ? (
+                                <>
+                                    <div className="animate-spin h-4 w-4 border-2 border-gray-400 border-t-transparent rounded-full"></div>
+                                    <span>Scanning...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <span>{importConfig.icon}</span> {importConfig.label}
+                                </>
+                            )}
+                        </button>
+                    )}
                     <button
                         onClick={handleReset}
                         disabled={isScanning}
@@ -155,6 +176,9 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
                     >
                         Reset Library
                     </button>
+                    <div className="text-center">
+                        <span className="text-[10px] text-gray-700 font-mono">v1.20</span>
+                    </div>
                 </div>
             </aside>
 
