@@ -22,6 +22,12 @@ LifeWeeks Media is a powerful, local-first desktop application designed to bridg
   - 🎵 **Music**: `.mp3`, `.wav`, `.flac`
   - 📄 **Documents**: `.pdf`, `.doc`, `.txt`
   - 🛠️ **Projects**: *(Coming Soon)* Specialized handling for DAW & IDE projects.
+- **Project X-Ray** (New!): Specialized scanning for Ableton Live Projects (`.als`).
+    - **Deep Integrity Checks**: verifies existence of referenced audio files.
+    - **Metadata Extraction**: Extracts Tempo (BPM), Time Signature, Total Samples, and Ableton Version.
+    - **Smart Parsing**: Prioritizes automation events for accurate tempo detection and handles various XML structures.
+    - **Audio Inventory**: Visual lists of all verified audio files within a project.
+    - **Auto-Exclusion**: Options to ignore "Backup" folders and automatically skips macOS hidden files (`._`).
 - **Duplicate Detection**: Identify and manage duplicate files based on content hash, not just filenames.
 - **Enhanced Navigation**:
   - **Grid Persistence**: Remembers your page and view settings.

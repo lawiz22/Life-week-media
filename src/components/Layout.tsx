@@ -19,6 +19,7 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
     const [scanProgress, setScanProgress] = useState<{ status: string; file?: string; description?: string } | null>(null);
     const [scanResult, setScanResult] = useState<ScanResult | null>(null);
     const [includeSubfolders, setIncludeSubfolders] = useState(false);
+    const [excludeBackups, setExcludeBackups] = useState(true);
 
     const tabs: { id: Tab; label: string }[] = [
         { id: 'life-weeks', label: 'Life in Weeks' },
@@ -59,6 +60,7 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
 
                 const result = await window.ipcRenderer?.invoke('start-scan', path, {
                     includeSubfolders,
+                    excludeBackups,
                     scanType: activeTab // Pass active tab as scan type (pictures, video, etc.)
                 });
 
@@ -126,20 +128,39 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
                 </nav>
 
                 <div className="mt-auto px-4 py-6 border-t border-gray-800 space-y-3">
-                    {/* Only show options if import is available */}
                     {importConfig && (
-                        <div className="flex items-center gap-2 px-1">
-                            <input
-                                type="checkbox"
-                                id="include-subfolders"
-                                checked={includeSubfolders}
-                                onChange={(e) => setIncludeSubfolders(e.target.checked)}
-                                disabled={isScanning}
-                                className="rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-blue-500/50"
-                            />
-                            <label htmlFor="include-subfolders" className={`text-sm select-none ${isScanning ? 'text-gray-600' : 'text-gray-400'}`}>
-                                Include Subfolders
-                            </label>
+                        <div className="flex flex-col gap-2 px-1">
+                            {/* Include Subfolders */}
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    id="include-subfolders"
+                                    checked={includeSubfolders}
+                                    onChange={(e) => setIncludeSubfolders(e.target.checked)}
+                                    disabled={isScanning}
+                                    className="rounded border-gray-700 bg-gray-800 text-blue-600 focus:ring-blue-500/50"
+                                />
+                                <label htmlFor="include-subfolders" className={`text-sm select-none ${isScanning ? 'text-gray-600' : 'text-gray-400'}`}>
+                                    Include Subfolders
+                                </label>
+                            </div>
+
+                            {/* Exclude Backups (Only visible if subfolders checked) */}
+                            {includeSubfolders && (
+                                <div className="flex items-center gap-2 pl-4">
+                                    <input
+                                        type="checkbox"
+                                        id="exclude-backups"
+                                        checked={excludeBackups}
+                                        onChange={(e) => setExcludeBackups(e.target.checked)}
+                                        disabled={isScanning}
+                                        className="rounded border-gray-700 bg-gray-800 text-red-500 focus:ring-red-500/50"
+                                    />
+                                    <label htmlFor="exclude-backups" className={`text-sm select-none ${isScanning ? 'text-gray-600' : 'text-gray-400'}`}>
+                                        Exclude Backups
+                                    </label>
+                                </div>
+                            )}
                         </div>
                     )}
 

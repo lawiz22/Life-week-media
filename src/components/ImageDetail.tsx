@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { MediaFile } from './MediaGrid';
+import { WaveformPlayer } from './WaveformPlayer';
 
 interface ImageDetailProps {
     media: MediaFile;
@@ -236,37 +237,44 @@ export function ImageDetail({ media, onBack, onNext, onPrev }: ImageDetailProps)
                             <video
                                 controls
                                 autoPlay
-                                className="max-w-full max-h-full shadow-2xl rounded-lg bg-black"
+                                className="max-w-full max-h-full shadow-2xl rounded-lg bg-black cursor-pointer"
                                 src={`media://${encodeURIComponent(media.filepath)}`}
                                 poster={`media://thumbnail/${media.id}`}
                             />
                         ) : (
-                            /* Image or Audio Artwork */
-                            <img
-                                src={isAvailable && media.type !== 'audio' ? `media://${encodeURIComponent(media.filepath)}` : `media://thumbnail/${media.id}`}
-                                alt={media.filename}
-                                onClick={() => isAvailable && media.type !== 'audio' && setShowLightbox(true)}
-                                className={`max-w-full max-h-full object-contain shadow-2xl rounded-lg transition-all duration-300 
-                                    ${media.type === 'audio' ? 'w-96 h-96 shadow-blue-900/40' : ''}
-                                    ${isAvailable && media.type !== 'audio' ? 'cursor-zoom-in hover:scale-[1.01]' : ''}
-                                    ${!isAvailable && media.type !== 'audio' ? 'opacity-40 grayscale cursor-not-allowed' : ''}
-                                `}
-                                onError={(e) => {
-                                    const img = e.currentTarget;
-                                    if (isAvailable && media.type !== 'audio') setIsAvailable(false);
-                                    img.src = `media://thumbnail/${media.id}`;
-                                }}
-                            />
+                            /* Image or Audio Artwork (Only show if not audio, OR if audio has album metadata implying real art) */
+                            (media.type !== 'audio' || (media.type === 'audio' && metadata?.album)) && (
+                                <img
+                                    src={isAvailable && media.type !== 'audio' ? `media://${encodeURIComponent(media.filepath)}` : `media://thumbnail/${media.id}`}
+                                    alt={media.filename}
+                                    onClick={() => isAvailable && media.type !== 'audio' && setShowLightbox(true)}
+                                    className={`max-w-full max-h-full object-contain shadow-2xl rounded-lg transition-all duration-300 
+                                        ${media.type === 'audio' ? 'w-64 h-64 shadow-blue-900/40 object-cover rounded-xl' : ''}
+                                        ${isAvailable && media.type !== 'audio' ? 'cursor-zoom-in hover:scale-[1.01]' : ''}
+                                        ${!isAvailable && media.type !== 'audio' ? 'opacity-40 grayscale cursor-not-allowed' : ''}
+                                    `}
+                                    onError={(e) => {
+                                        const img = e.currentTarget;
+                                        if (isAvailable && media.type !== 'audio') setIsAvailable(false);
+                                        // If audio thumbnail fails, just hide it
+                                        if (media.type === 'audio') {
+                                            img.style.display = 'none';
+                                        } else {
+                                            img.src = `media://thumbnail/${media.id}`;
+                                        }
+                                    }}
+                                />
+                            )
                         )}
 
                         {/* Audio Player */}
                         {media.type === 'audio' && isAvailable && (
-                            <div className="mt-8 w-full max-w-2xl animate-in slide-in-from-bottom duration-500 fade-in fill-mode-backwards delay-150">
-                                <audio
-                                    controls
-                                    autoPlay
-                                    className="w-full h-12 shadow-lg"
+                            <div className="mt-8 w-full max-w-4xl animate-in slide-in-from-bottom duration-500 fade-in fill-mode-backwards delay-150 px-8">
+                                <WaveformPlayer
                                     src={`media://${encodeURIComponent(media.filepath)}`}
+                                    height={160}
+                                    waveColor="#4b5563"
+                                    progressColor="#3b82f6"
                                 />
                             </div>
                         )}

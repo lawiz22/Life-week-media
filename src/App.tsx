@@ -4,6 +4,7 @@ import { LifeWeeks } from './components/LifeWeeks'
 import { MediaGrid, MediaFile } from './components/MediaGrid'
 import { DuplicatesList } from './components/DuplicatesList'
 import { ImageDetail } from './components/ImageDetail'
+import { ProjectDetail } from './components/ProjectDetail'
 
 // Define Tab type locally since it's used in state
 type Tab = 'life-weeks' | 'pictures' | 'video' | 'music' | 'projects' | 'documents' | 'duplicates' | 'settings';
@@ -18,7 +19,7 @@ function App() {
 
   // Persisted view state
   const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(50) // Default higher for better UX? Or 20. Sticking to user defaults if any.
+  const [pageSize, setPageSize] = useState(50)
   const [viewMode, setViewMode] = useState<'large' | 'medium' | 'small' | 'list'>('medium')
 
   // Load files when tab changes
@@ -87,14 +88,24 @@ function App() {
   return (
     <Layout activeTab={activeTab} onTabChange={handleTabChange} onScanComplete={handleScanComplete}>
       {selectedMedia ? (
-        <ImageDetail
-          media={selectedMedia}
-          onBack={() => setSelectedMedia(null)}
-          onNext={files.findIndex(f => f.id === selectedMedia.id) < files.length - 1 ? handleNext : undefined}
-          onPrev={files.findIndex(f => f.id === selectedMedia.id) > 0 ? handlePrev : undefined}
-        />
+        activeTab === 'projects' || selectedMedia.type === 'project' ? (
+          <ProjectDetail
+            media={selectedMedia}
+            onBack={() => setSelectedMedia(null)}
+            onNext={files.findIndex(f => f.id === selectedMedia.id) < files.length - 1 ? handleNext : undefined}
+            onPrev={files.findIndex(f => f.id === selectedMedia.id) > 0 ? handlePrev : undefined}
+          />
+        ) : (
+          <ImageDetail
+            media={selectedMedia}
+            onBack={() => setSelectedMedia(null)}
+            onNext={files.findIndex(f => f.id === selectedMedia.id) < files.length - 1 ? handleNext : undefined}
+            onPrev={files.findIndex(f => f.id === selectedMedia.id) > 0 ? handlePrev : undefined}
+          />
+        )
       ) : (
         <>
+          {/* ... other tabs ... */}
           {activeTab === 'life-weeks' && <LifeWeeks refreshKey={refreshKey} />}
 
           {['pictures', 'video', 'music', 'documents', 'projects'].includes(activeTab) && (

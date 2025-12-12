@@ -42,7 +42,7 @@ export class FileScanner {
 
     async scanDirectory(
         dirPath: string,
-        options: { includeSubfolders: boolean; scanProjects?: boolean; scanType?: string } = { includeSubfolders: false, scanProjects: false },
+        options: { includeSubfolders: boolean; scanProjects?: boolean; scanType?: string; excludeBackups?: boolean } = { includeSubfolders: false, scanProjects: false },
         onProgress?: (progress: ScanProgress) => void,
         signal?: AbortSignal
     ): Promise<ScanResult> {
@@ -65,7 +65,7 @@ export class FileScanner {
     async walk(
         dir: string,
         result: ScanResult,
-        options: { includeSubfolders: boolean; scanProjects?: boolean; scanType?: string },
+        options: { includeSubfolders: boolean; scanProjects?: boolean; scanType?: string; excludeBackups?: boolean },
         onProgress?: (progress: ScanProgress) => void,
         signal?: AbortSignal
     ) {
@@ -83,6 +83,12 @@ export class FileScanner {
                     // Use lstat to avoid following symlinks which cause infinite loops
                     const stat = await fs.promises.lstat(filePath);
                     if (stat.isDirectory()) {
+                        // Check for Backup exclusion
+                        if (options.excludeBackups && file.toLowerCase() === 'backup') {
+                            console.log(`Skipping backup folder: ${filePath}`);
+                            continue;
+                        }
+
                         if (options.includeSubfolders) {
                             console.log(`Scanning subdir: ${filePath}`);
                             await this.walk(filePath, result, options, onProgress, signal);
@@ -124,6 +130,12 @@ export class FileScanner {
             }
 
             const stat = await fs.promises.stat(filePath);
+
+            // Ignore macOS metadata files (._)
+            if (path.basename(filePath).startsWith('._')) {
+                return;
+            }
+
             const ext = path.extname(filePath).toLowerCase();
             const type = this.getFileType(ext);
 
@@ -594,12 +606,25 @@ export class FileScanner {
                 } catch (probeErr) {
                     console.error(`[Video] Failed to probe ${filePath}: ${(probeErr as Error).message}`);
                     // Fallback to basic stats
-                    const metadata = {
-                        ModifyDate: stat.mtime,
-                        fallback: true,
-                        error: (probeErr as Error).message
-                    };
-                    this.db.update(mediaFiles).set({ metadata }).where(eq(mediaFiles.id, mediaId)).run();
+
+                }
+            }
+
+            else if (type === 'project' && ext === '.als') {
+                // Ableton Live Project Integrity Check
+                if (onProgress) onProgress({ status: 'processing', file: filePath, description: 'Checking project integrity...' });
+                try {
+                    console.log(`[Project] analyzing Ableton file: ${path.basename(filePath)}`);
+                    const integrity = await this.parseAbletonProject(filePath);
+
+                    this.db.update(mediaFiles)
+                        .set({ metadata: JSON.stringify({ integrity }) })
+                        .where(eq(mediaFiles.id, mediaId))
+                        .run();
+
+                    console.log(`[Project] Integrity check complete for ${path.basename(filePath)}: ${integrity.status}`);
+                } catch (projErr) {
+                    console.error(`[Project] Failed to parse ${filePath}:`, projErr);
                 }
             }
 
@@ -610,6 +635,287 @@ export class FileScanner {
             result.errors++;
         }
     }
+
+    private async parseAbletonProject(filePath: string): Promise<{
+        status: 'OK' | 'MISSING_FILES' | 'ERROR',
+        missing: string[],
+        valid_samples: string[],
+        total_samples: number,
+        unique_samples: number,
+        tempo: number,
+        timeSignature: string,
+        creator?: string,
+        majorVersion?: string,
+        minorVersion?: string,
+        created?: Date,
+        modified?: Date
+    }> {
+        // Dynamic imports to avoid startup overhead if not used
+        const zlib = require('zlib');
+        const xml2js = require('xml2js');
+        const parser = new xml2js.Parser();
+
+        try {
+            // 0. Get File Stats (Dates)
+            const stats = await fs.promises.stat(filePath);
+            const created = stats.birthtime;
+            const modified = stats.mtime;
+
+            // 1. Read and Unzip
+            const fileData = await fs.promises.readFile(filePath);
+
+            // Check if gzipped (magic bytes 1F 8B)
+            let xmlContent = '';
+            if (fileData[0] === 0x1f && fileData[1] === 0x8b) {
+                xmlContent = zlib.gunzipSync(fileData).toString('utf-8');
+            } else {
+                // Might be uncompressed XML
+                xmlContent = fileData.toString('utf-8');
+            }
+
+            // 2. Parse XML
+            const result = await parser.parseStringPromise(xmlContent);
+
+            // 2b. Extract Version Info
+            let creator = '';
+            let majorVersion = '';
+            let minorVersion = '';
+
+            try {
+                // Root is usually <Ableton>
+                const rootAttrs = result?.Ableton?.['$'] || result?.Ableton?.[0]?.['$'];
+                if (rootAttrs) {
+                    creator = rootAttrs.Creator || '';
+                    majorVersion = rootAttrs.MajorVersion || '';
+                    minorVersion = rootAttrs.MinorVersion || '';
+                }
+            } catch (verErr) {
+                console.log('[Project] Could not extract version info:', verErr);
+            }
+
+
+            // 3. Navigate XML to find SampleRefs
+            // Structure: LiveSet -> Tracks -> (AudioTrack|MidiTrack) -> DeviceChain -> ... -> SampleRef
+            // This is complex and recursive. Simplest way is to string search or traverse deeply.
+            // Let's TRY to traverse recursively looking for "SampleRef".
+
+            const samples: string[] = [];
+            const valid_samples: string[] = [];
+
+            // 3. Extract Metadata
+            const missing: string[] = [];
+            const uniqueSamples = new Set<string>();
+            let tempo = 0;
+            let timeSignature = '';
+
+            // Extract Tempo & Time Signature
+            // Use recursive search because XML structure varies by Live version
+            const findValue = (obj: any, keyName: string): any => {
+                if (!obj) return null;
+                if (typeof obj !== 'object') return null;
+
+                // Check if current object IS the key we want directly (rare in xml2js unless flattened)
+                // Or if it HAS the property
+                if (Object.keys(obj).some(k => k.toLowerCase() === keyName.toLowerCase())) {
+                    // Found matching key
+                    const match = obj[Object.keys(obj).find(k => k.toLowerCase() === keyName.toLowerCase()) as string];
+                    return match;
+                }
+
+                // Recurse
+                for (const k of Object.keys(obj)) {
+                    if (typeof obj[k] === 'object') {
+                        const found = findValue(obj[k], keyName);
+                        if (found) return found;
+                    }
+                }
+                return null;
+            };
+
+            const projectDir = path.dirname(filePath);
+            let nodesVisited = 0;
+            let isMasterTempoFound = false;
+
+            const traverse = (obj: any, isInsideMasterTrack = false) => {
+                nodesVisited++;
+                if (!obj || typeof obj !== 'object') return;
+
+                for (const key of Object.keys(obj)) {
+                    const kLower = key.toLowerCase();
+                    const isMaster = isInsideMasterTrack || kLower === 'mastertrack' || kLower === 'maintrack';
+
+                    if (kLower === 'mastertrack' || kLower === 'maintrack') {
+                        // console.log('[Debug] Entered Master/MainTrack');
+                    }
+
+                    // Tempo
+                    if (kLower === 'tempo') {
+                        const tempoRaw = obj[key];
+
+                        // 1. Manual Value (Static)
+                        // XML: <Manual Value="129" /> -> Manual[0].$.Value
+                        const val = tempoRaw?.[0]?.Manual?.[0]?.['$']?.Value
+                            || tempoRaw?.[0]?.Manual?.[0]?.Value?.[0]?.['$']?.Value
+                            || tempoRaw?.[0]?.Manual?.[0]?.Value?.[0]
+                            || tempoRaw?.[0]?.['$']?.Value;
+
+                        let parsedTempo = 0;
+
+                        if (val && typeof val === 'string') {
+                            const p = parseFloat(val);
+                            if (!isNaN(p) && p > 0 && p < 999) parsedTempo = p;
+                        }
+
+                        // 2. Automation (Dynamic)
+                        try {
+                            const automation = tempoRaw?.[0]?.AutomationTarget?.[0] || tempoRaw?.[0];
+                            const eventsContainer = automation?.Events?.[0] || automation?.Events;
+
+                            // Check for FloatEvent or EnumEvent
+                            const floatEvents = eventsContainer?.FloatEvent;
+
+                            if (floatEvents && Array.isArray(floatEvents)) {
+                                // Sort by Time
+                                const sorted = floatEvents.sort((a: any, b: any) => {
+                                    return parseFloat(a['$']?.Time) - parseFloat(b['$']?.Time);
+                                });
+
+                                // Get the event closest to time 0 (start of song)
+                                let chosenEvent = sorted[0];
+                                const startEvents = sorted.filter((e: any) => parseFloat(e['$']?.Time) <= 0.1);
+                                if (startEvents.length > 0) {
+                                    chosenEvent = startEvents[startEvents.length - 1];
+                                }
+
+                                const val = chosenEvent?.['$']?.Value;
+                                if (val) {
+                                    const pAv = parseFloat(val);
+                                    if (!isNaN(pAv) && pAv > 0 && pAv < 999) {
+                                        parsedTempo = pAv;
+                                        // if (isMaster) console.log(`[Debug] Overwriting Manual Tempo with Automation: ${parsedTempo}`);
+                                    }
+                                }
+                            }
+                        } catch (err) { }
+
+                        if (parsedTempo > 0) {
+                            if (isMaster) {
+                                tempo = parsedTempo;
+                                isMasterTempoFound = true;
+                                // console.log(`[Debug] Extracted Authoritative Tempo: ${parsedTempo}`);
+                            } else if (!isMasterTempoFound && tempo === 0) {
+                                tempo = parsedTempo;
+                            }
+                        }
+                    }
+
+                    // Time Signature (Numerator/Denominator)
+                    if (kLower === 'numerator') {
+                        const numRaw = obj[key];
+                        const numVal = numRaw?.[0]?.Manual?.[0]?.Value?.[0]?.['$']?.Value
+                            || numRaw?.[0]?.Manual?.[0]?.Value?.[0]?.['$']?.Value
+                            || numRaw?.[0]?.['$']?.Value
+                            || numRaw?.[0]?.Manual?.[0]?.Value?.[0];
+
+                        if (numVal) {
+                            const denRaw = obj['Denominator'] || obj['denominator'];
+                            if (denRaw) {
+                                const denVal = denRaw?.[0]?.Manual?.[0]?.Value?.[0]?.['$']?.Value
+                                    || denRaw?.[0]?.['$']?.Value
+                                    || denRaw?.[0]?.Manual?.[0]?.Value?.[0];
+
+                                if (denVal) {
+                                    const sig = `${parseInt(numVal)}/${parseInt(denVal)}`;
+                                    if (sig.length < 10 && !sig.includes('NaN')) {
+                                        if (!timeSignature || timeSignature.startsWith('ID:')) {
+                                            timeSignature = sig;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Time Signature (Legacy Name)
+                    if (kLower === 'timesignature') {
+                        const tsRaw = obj[key];
+                        const tsObj = Array.isArray(tsRaw) ? tsRaw[0] : tsRaw;
+                        const num = tsObj?.Numerator?.[0]?.Manual?.[0]?.Value?.[0];
+                        const den = tsObj?.Denominator?.[0]?.Manual?.[0]?.Value?.[0];
+                        if (num && den && typeof num === 'string' && typeof den === 'string') {
+                            const sig = `${num}/${den}`;
+                            if (!timeSignature || timeSignature.startsWith('ID:')) {
+                                timeSignature = sig;
+                            }
+                        }
+                    }
+
+                    // Time Signature ID (Fallback)
+                    if (kLower === 'timesignatureid') {
+                        const idVal = obj[key]?.[0]?.['$']?.Value;
+                        if (idVal && typeof idVal === 'string' && !timeSignature) {
+                            timeSignature = `ID: ${idVal}`;
+                        }
+                    }
+
+                    // Samples
+                    if (kLower === 'sampleref' || kLower === 'fileref') {
+                        const fileRef = obj[key]?.[0]?.FileRef?.[0] || obj[key]?.[0];
+                        let pathVal = fileRef?.Path?.[0]?.['$']?.Value || fileRef?.Path?.[0];
+                        if (!pathVal) pathVal = fileRef?.RelativePath?.[0]?.['$']?.Value;
+
+                        if (pathVal && typeof pathVal === 'string') {
+                            let absolutePath = pathVal;
+                            try {
+                                if (!path.isAbsolute(pathVal)) absolutePath = path.resolve(projectDir, pathVal);
+                                if (absolutePath.match(/\.(wav|aif|aiff|mp3|m4a|flac|ogg)$/i)) {
+                                    if (fs.existsSync(absolutePath)) {
+                                        uniqueSamples.add(absolutePath);
+                                        valid_samples.push(absolutePath);
+                                        samples.push(absolutePath);
+                                    } else {
+                                        missing.push(pathVal);
+                                        samples.push(pathVal);
+                                    }
+                                }
+                            } catch (loopErr) { }
+                        }
+                    }
+
+                    // Recurse
+                    if (typeof obj[key] === 'object' && obj[key] !== null) {
+                        traverse(obj[key], isMaster);
+                    }
+                }
+            };
+
+            if (result) traverse(result);
+
+            console.log(`[Project] Analysis done. Tempo: ${tempo}, TimeSig: ${timeSignature}, Samples: ${samples.length}`);
+
+            return {
+                status: missing.length > 0 ? 'MISSING_FILES' : 'OK',
+                missing,
+                valid_samples: Array.from(new Set(valid_samples)), // Dedup valid samples
+                total_samples: samples.length,
+                unique_samples: uniqueSamples.size,
+                tempo,
+                timeSignature,
+                creator,
+                majorVersion,
+                minorVersion,
+                created,
+                modified
+            };
+
+
+
+        } catch (outerErr) {
+            console.error('Error reading/unzipping Ableton file:', outerErr);
+            return { status: 'ERROR', missing: [], total_samples: 0, unique_samples: 0, tempo: 0, timeSignature: '' };
+        }
+    }
+
 
     private getFileType(ext: string): string {
         const images = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
@@ -688,3 +994,4 @@ export class FileScanner {
             .all();
     }
 }
+

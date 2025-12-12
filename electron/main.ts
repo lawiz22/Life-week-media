@@ -59,8 +59,21 @@ app.on('activate', () => {
   }
 })
 
+// Register privileges for media scheme (needed for fetch/Wavesurfer)
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'media',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true, // Key for Wavesurfer/Fetch
+      bypassCSP: true,
+      corsEnabled: true
+    }
+  }
+]);
+
 app.whenReady().then(() => {
-  // Register 'media' protocol to serve local files
   // Register 'media' protocol to serve local files
   protocol.handle('media', async (request) => {
     // 1. Handle Thumbnails
@@ -216,7 +229,7 @@ app.whenReady().then(() => {
 
   let scanAbortController: AbortController | null = null;
 
-  ipcMain.handle('start-scan', async (_, dirPath: string, options: { includeSubfolders: boolean; scanType?: string }) => {
+  ipcMain.handle('start-scan', async (_, dirPath: string, options: { includeSubfolders: boolean; scanType?: string; excludeBackups?: boolean }) => {
     // Cancel previous scan if exists
     if (scanAbortController) {
       scanAbortController.abort();
@@ -406,6 +419,17 @@ app.whenReady().then(() => {
       return false;
     }
   });
+  ipcMain.handle('read-file-buffer', async (_, filePath: string) => {
+    const fs = await import('fs');
+    try {
+      const buffer = await fs.promises.readFile(filePath);
+      return buffer; // Electron automatically handles Buffer serialization
+    } catch (e) {
+      console.error('Read file buffer error:', e);
+      return null;
+    }
+  });
+
   ipcMain.handle('delete-file', async (_, { id, filepath }: { id: number, filepath: string }) => {
     const fs = await import('fs');
     const db = getDb();

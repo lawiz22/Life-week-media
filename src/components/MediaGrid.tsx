@@ -195,6 +195,14 @@ export function MediaGrid({
                 </div>
             </div>
 
+            {/* Project Disclaimer */}
+            {type === 'project' && (
+                <div className="bg-blue-900/20 border-b border-blue-900/50 px-6 py-2 text-xs text-blue-300 flex items-center justify-center">
+                    <span className="mr-2">ℹ️</span>
+                    Currently supports <strong>Ableton Live Projects (.als)</strong> only. Integrity check scans for missing samples automatically.
+                </div>
+            )}
+
             {/* Content Area */}
             <div className="flex-1 overflow-y-auto p-4 flex flex-col">
                 <div className="flex-1">
@@ -308,16 +316,19 @@ export function MediaGrid({
                                         />
                                     ) : (
                                         <>
-                                            <img
-                                                src={`media://thumbnail/${file.id}`}
-                                                alt={file.filename}
-                                                className={`w-full h-full object-cover ${!file.available ? 'opacity-50 grayscale' : ''}`}
-                                                loading="lazy"
-                                                onError={(e) => {
-                                                    console.error('Failed to load image:', file.filepath);
-                                                    e.currentTarget.style.display = 'none';
-                                                }}
-                                            />
+                                            {type !== 'project' && (
+                                                <img
+                                                    src={`media://thumbnail/${file.id}`}
+                                                    alt={file.filename}
+                                                    className={`w-full h-full object-cover ${!file.available ? 'opacity-50 grayscale' : ''}`}
+                                                    loading="lazy"
+                                                    onError={(e) => {
+                                                        // Only log error if it's strictly an image type failing
+                                                        if (type === 'image') console.warn('Failed to load image:', file.filepath);
+                                                        e.currentTarget.style.display = 'none';
+                                                    }}
+                                                />
+                                            )}
 
                                             {/* Audio Metadata Overlay */}
                                             {file.type === 'audio' && (() => {
@@ -347,12 +358,60 @@ export function MediaGrid({
                                         </>
                                     )}
 
-                                    {(type === 'project' || type === 'audio' || type === 'document') && (
+                                    {(type === 'audio' || type === 'document') && (
                                         <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 p-2">
-                                            <span className="text-4xl mb-2">📄</span>
+                                            <span className="text-4xl mb-2">{type === 'audio' ? '🎵' : '📄'}</span>
                                             <span className="text-xs text-center break-all">{file.filename}</span>
                                         </div>
                                     )}
+
+                                    {type === 'project' && (() => {
+                                        // Parse integrity
+                                        let integrity: any = null;
+                                        try {
+                                            const m = typeof file.metadata === 'string' ? JSON.parse(file.metadata) : file.metadata;
+                                            integrity = m?.integrity;
+                                        } catch { }
+
+                                        const status = integrity?.status || 'UNKNOWN';
+                                        const isOk = status === 'OK';
+                                        const isMissing = status === 'MISSING_FILES';
+
+                                        return (
+                                            <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900 p-4 relative">
+                                                {/* Ableton Logo Image */}
+                                                <div className="mb-3 w-10 h-10 rounded overflow-hidden shadow-sm opacity-90">
+                                                    <img src="/src/assets/ableton_logo.jpg" alt="Ableton Live" className="w-full h-full object-cover" />
+                                                </div>
+
+                                                <span className="text-xs text-center font-bold text-gray-300 break-all line-clamp-2 px-2">
+                                                    {file.filename.replace('.als', '')}
+                                                </span>
+
+                                                {/* Integrity Badge */}
+                                                <div className={`absolute top-2 right-2 flex items-center justify-center w-6 h-6 rounded-full shadow-lg border ${isOk ? 'bg-green-500/20 border-green-500 text-green-400' : isMissing ? 'bg-red-500/20 border-red-500 text-red-500' : 'bg-gray-700 border-gray-600 text-gray-400'}`}>
+                                                    {isOk && (
+                                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                                        </svg>
+                                                    )}
+                                                    {isMissing && (
+                                                        <span className="text-xs font-bold">!</span>
+                                                    )}
+                                                    {!isOk && !isMissing && (
+                                                        <span className="text-xs font-bold">?</span>
+                                                    )}
+                                                </div>
+
+                                                {/* Missing Count Badge */}
+                                                {isMissing && (
+                                                    <div className="absolute bottom-2 inset-x-2 bg-red-900/80 text-red-200 text-[10px] py-1 px-2 rounded text-center border border-red-800/50 backdrop-blur-sm">
+                                                        {integrity.missing.length} Missing Files
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
 
                                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2 pointer-events-none">
                                         <span className="text-xs text-white truncate w-full shadow-black drop-shadow-md">{file.filename}</span>
