@@ -30,7 +30,3 @@ library.db
 # Debug files
 debug_output*.txt
 debug-*.ts
-
-# Debug files
-debug_output*.txt
-debug-*.ts
