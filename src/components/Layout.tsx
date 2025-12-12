@@ -197,6 +197,21 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
                                     <div className="h-1.5 w-full bg-gray-800 rounded-full overflow-hidden mt-2">
                                         <div className="h-full bg-blue-500 w-full animate-progress-indeterminate"></div>
                                     </div>
+
+                                    {/* Stop Button */}
+                                    <button
+                                        onClick={async () => {
+                                            try {
+                                                await window.ipcRenderer?.invoke('cancel-scan');
+                                                setScanProgress({ status: 'processing', description: 'Stopping scan...' });
+                                            } catch (e) {
+                                                console.error('Failed to stop scan', e);
+                                            }
+                                        }}
+                                        className="mt-2 w-full py-2 bg-red-950/50 hover:bg-red-900/50 text-red-400 border border-red-900/30 rounded-md text-sm font-medium transition-colors"
+                                    >
+                                        Stop Import
+                                    </button>
                                 </div>
                             ) : (
                                 // Results State

@@ -61,20 +61,14 @@ app.on('activate', () => {
 
 app.whenReady().then(() => {
   // Register 'media' protocol to serve local files
-  protocol.handle('media', (request) => {
-    // URL format: media://path/to/file OR media://thumbnail/<id>
-
-    // Check if it's a thumbnail request
+  // Register 'media' protocol to serve local files
+  protocol.handle('media', async (request) => {
+    // 1. Handle Thumbnails
     const thumbMatch = request.url.match(/^media:\/\/thumbnail\/(\d+)$/);
     if (thumbMatch) {
       const id = parseInt(thumbMatch[1]);
       try {
-        // We need to import the DB here, or reuse getDb.
-        // Ideally we shouldn't import DB inside the handler to avoid race conditions or overhead, 
-        // but `getDb()` is cached.
         const db = getDb();
-        // We need to use valid SQL or Drizzle. 
-        // Since we are in main process and schema is available:
         const row = db.select({
           data: schema.thumbnails.data,
           format: schema.thumbnails.format
@@ -84,43 +78,84 @@ app.whenReady().then(() => {
           .get();
 
         if (row) {
-          // row.data is a Buffer (blob). Net.fetch expects body.
-          // We can return a Response with the buffer.
           return new Response(row.data as any, {
             headers: { 'Content-Type': `image/${row.format}` }
           });
-        } else {
-          return new Response('Thumbnail Not Found', { status: 404 });
         }
-
+        return new Response('Thumbnail Not Found', { status: 404 });
       } catch (e) {
         console.error('Thumbnail fetch error:', e);
         return new Response('Error fetching thumbnail', { status: 500 });
       }
     }
 
+    // 2. Handle Files (Videos/Images) with Range Support
     try {
       let pathName = request.url.replace(/^media:\/\//, '');
-
-      // Handle potential "media://C:/" becoming "/C:/" due to extra slash
       if (process.platform === 'win32' && pathName.startsWith('/') && /^[a-zA-Z]:/.test(pathName.slice(1))) {
         pathName = pathName.slice(1);
       }
-
-      // Decode spaces and special characters
       pathName = decodeURIComponent(pathName);
+      const filePath = path.normalize(pathName);
 
-      // Normalize to OS specific path (C:\Users\... on Windows)
-      // this fixes slash direction issues
-      const osPath = path.normalize(pathName);
+      const fs = await import('fs');
+      const { Readable } = await import('stream');
 
-      // Convert back to a safe file:// URL
-      const safeUrl = pathToFileURL(osPath).toString();
+      const stat = await fs.promises.stat(filePath);
+      const fileSize = stat.size;
+      const range = request.headers.get('Range');
 
-      return net.fetch(safeUrl);
+      // Simple MIME detection
+      const ext = path.extname(filePath).toLowerCase();
+      let mimeType = 'application/octet-stream';
+      if (ext === '.mp4') mimeType = 'video/mp4';
+      if (ext === '.mov') mimeType = 'video/quicktime';
+      if (ext === '.webm') mimeType = 'video/webm';
+      if (ext === '.avi') mimeType = 'video/x-msvideo';
+      if (ext === '.mkv') mimeType = 'video/x-matroska';
+      if (ext === '.png') mimeType = 'image/png';
+      if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
+      if (ext === '.webp') mimeType = 'image/webp';
+
+      if (range) {
+        // Range Request (Video seeking/streaming)
+        const parts = range.replace(/bytes=/, "").split("-");
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunksize = (end - start) + 1;
+
+        const stream = fs.createReadStream(filePath, { start, end });
+        // @ts-ignore
+        const readable = Readable.toWeb(stream);
+
+        return new Response(readable as any, {
+          status: 206,
+          headers: {
+            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': chunksize.toString(),
+            'Content-Type': mimeType,
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      } else {
+        // Full File Request
+        const stream = fs.createReadStream(filePath);
+        // @ts-ignore
+        const readable = Readable.toWeb(stream);
+
+        return new Response(readable as any, {
+          status: 200,
+          headers: {
+            'Content-Length': fileSize.toString(),
+            'Content-Type': mimeType,
+            'Accept-Ranges': 'bytes',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      }
     } catch (e) {
       console.error('Media protocol error:', e);
-      // Returning 404 is correct for missing files, but useful to know if it's a code error
       return new Response('Media Not Found', { status: 404 });
     }
   })
@@ -144,12 +179,33 @@ app.whenReady().then(() => {
     return result.filePaths[0];
   });
 
+  let scanAbortController: AbortController | null = null;
+
   ipcMain.handle('start-scan', async (_, dirPath: string, options: { includeSubfolders: boolean }) => {
+    // Cancel previous scan if exists
+    if (scanAbortController) {
+      scanAbortController.abort();
+    }
+    scanAbortController = new AbortController();
+
     const { FileScanner } = await import('./scanner');
     const scanner = new FileScanner();
-    return await scanner.scanDirectory(dirPath, options, (progress) => {
-      win?.webContents.send('scan-progress', progress);
-    });
+    try {
+      return await scanner.scanDirectory(dirPath, options, (progress) => {
+        win?.webContents.send('scan-progress', progress);
+      }, scanAbortController.signal);
+    } finally {
+      scanAbortController = null;
+    }
+  });
+
+  ipcMain.handle('cancel-scan', async () => {
+    if (scanAbortController) {
+      scanAbortController.abort();
+      scanAbortController = null;
+      return true;
+    }
+    return false;
   });
 
   ipcMain.handle('get-duplicates', async () => {
