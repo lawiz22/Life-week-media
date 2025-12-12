@@ -255,19 +255,32 @@ export function MediaGrid({ type, onSelect, refreshKey }: MediaGridProps) {
                                                 e.currentTarget.style.display = 'none';
                                             }}
                                         />
-                                        {/* Video Icon overlay (only if not hovering) */}
-                                        {/* Video Icon overlay (only if not hovering) - REMOVED per user request */}
-                                        {/*
-                                        {file.type === 'video' && (
-                                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                                <div className="bg-black/50 rounded-full p-3 backdrop-blur-sm border border-white/20">
-                                                    <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                                        <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
-                                                    </svg>
+
+                                        {/* Audio Metadata Overlay */}
+                                        {file.type === 'audio' && (() => {
+                                            // Parse metadata safely
+                                            let meta: any = {};
+                                            try {
+                                                meta = typeof file.metadata === 'string' ? JSON.parse(file.metadata) : file.metadata || {};
+                                            } catch { }
+
+                                            const title = meta.title || file.filename;
+                                            const artist = meta.artist;
+
+                                            return (
+                                                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-3 pt-6 flex flex-col justify-end text-left transition-all duration-300">
+                                                    <div className="text-white font-bold text-sm leading-tight line-clamp-2 shadow-sm">{title}</div>
+                                                    {artist && <div className="text-gray-300 text-xs mt-0.5 font-medium shadow-sm truncate">{artist}</div>}
                                                 </div>
+                                            );
+                                        })()}
+
+                                        {/* Audio Format Badge */}
+                                        {file.type === 'audio' && (
+                                            <div className="absolute top-2 right-2 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded uppercase font-bold tracking-wider backdrop-blur-sm border border-white/10 z-10">
+                                                {file.filename.split('.').pop()}
                                             </div>
                                         )}
-                                        */}
                                     </>
                                 )}
 

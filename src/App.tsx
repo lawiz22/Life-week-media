@@ -30,10 +30,10 @@ function App() {
         <>
           {activeTab === 'life-weeks' && <LifeWeeks refreshKey={refreshKey} />}
           {activeTab === 'pictures' && <MediaGrid type="image" onSelect={setSelectedMedia} refreshKey={refreshKey} />}
-          {activeTab === 'video' && <MediaGrid type="video" refreshKey={refreshKey} />}
-          {activeTab === 'music' && <MediaGrid type="audio" refreshKey={refreshKey} />}
-          {activeTab === 'documents' && <MediaGrid type="document" refreshKey={refreshKey} />}
-          {activeTab === 'projects' && <MediaGrid type="project" refreshKey={refreshKey} />}
+          {activeTab === 'video' && <MediaGrid type="video" onSelect={setSelectedMedia} refreshKey={refreshKey} />}
+          {activeTab === 'music' && <MediaGrid type="audio" onSelect={setSelectedMedia} refreshKey={refreshKey} />}
+          {activeTab === 'documents' && <MediaGrid type="document" onSelect={setSelectedMedia} refreshKey={refreshKey} />}
+          {activeTab === 'projects' && <MediaGrid type="project" onSelect={setSelectedMedia} refreshKey={refreshKey} />}
           {activeTab === 'duplicates' && <DuplicatesList refreshKey={refreshKey} />}
         </>
       )}

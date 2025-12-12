@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { parseFile } from 'music-metadata';
 import path from 'path';
 import crypto from 'crypto';
 import os from 'os';
@@ -155,7 +156,7 @@ export class FileScanner {
                 size: stat.size,
                 createdAt: Math.floor(stat.birthtimeMs),
                 hash,
-                metadata: null
+                metadata: '{}' // Temp placeholder
             }).returning({ id: mediaFiles.id }).get();
 
             const mediaId = insertResult.id;
@@ -246,6 +247,133 @@ export class FileScanner {
                 } catch (vidErr) {
                     if ((vidErr as Error).message === 'Scan cancelled') throw vidErr;
                     console.error(`Failed to generate video thumbnail for ${filePath}`, vidErr);
+                }
+
+            } else if (type === 'audio') {
+                // Audio Metadata & Thumbnail (Cover Art or Waveform)
+                if (onProgress) onProgress({ status: 'generating_thumbnail', file: filePath, description: 'Processing audio metadata...' });
+                try {
+                    let coverBuffer: Buffer | null = null;
+                    let audioMeta: any = {};
+
+                    // 1. Try to extract metadata and cover art
+                    try {
+                        const metadata = await parseFile(filePath);
+                        const common = metadata.common;
+
+                        audioMeta = {
+                            title: common.title,
+                            artist: common.artist,
+                            album: common.album,
+                            genre: common.genre,
+                            year: common.year
+                        };
+
+                        if (common.picture && common.picture.length > 0) {
+                            const pic = common.picture[0];
+                            console.log(`[Audio] Found embedded cover art for ${path.basename(filePath)}`);
+                            coverBuffer = await sharp(pic.data)
+                                .resize({ width: 300, height: 300, fit: 'cover' })
+                                .webp({ quality: 80 })
+                                .toBuffer();
+                        }
+                    } catch (metaErr) {
+                        console.warn(`[Audio] Failed to parse tags for ${filePath}: ${(metaErr as Error).message}`);
+                    }
+
+                    // Update DB with rich metadata
+                    this.db.update(mediaFiles)
+                        .set({ metadata: JSON.stringify(audioMeta) })
+                        .where(eq(mediaFiles.id, mediaId))
+                        .run();
+
+
+                    // 2. Save Thumbnail (Cover Art OR Waveform)
+                    if (coverBuffer) {
+                        // Use extracted cover art
+                        this.db.insert(thumbnails).values({
+                            mediaId: mediaId,
+                            data: coverBuffer,
+                            format: 'webp'
+                        }).run();
+                    } else {
+                        // Fallback: Generate Waveform (with Generic Fallback on Error)
+                        const tempThumb = path.join(os.tmpdir(), `wave_${mediaId}_${Date.now()}.png`);
+
+                        try {
+                            await Promise.race([
+                                new Promise((resolve, reject) => {
+                                    const args = [
+                                        '-y',
+                                        '-t', '60',        // Optimization: Read max 60s of audio for waveform
+                                        '-i', filePath,
+                                        '-filter_complex', 'showwavespic=s=300x300:colors=#4299e1',
+                                        '-frames:v', '1',
+                                        tempThumb
+                                    ];
+                                    const proc = spawn(ffmpegPath, args);
+                                    proc.on('close', (code) => {
+                                        if (code === 0) resolve(null);
+                                        else reject(new Error(`FFmpeg waveform exited with code ${code}`));
+                                    });
+                                    proc.on('error', (err) => reject(err));
+                                }),
+                                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 30000)) // Increased to 30s
+                            ]);
+
+                            if (signal?.aborted) {
+                                try { await fs.promises.unlink(tempThumb); } catch { }
+                                throw new Error('Scan cancelled');
+                            }
+
+                            const thumbnailBuffer = await sharp(tempThumb)
+                                .resize({ width: 300, height: 300, fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+                                .webp({ quality: 80 })
+                                .toBuffer();
+
+                            this.db.insert(thumbnails).values({
+                                mediaId: mediaId,
+                                data: thumbnailBuffer,
+                                format: 'webp'
+                            }).run();
+
+                            try { await fs.promises.unlink(tempThumb); } catch (e) { }
+
+                        } catch (waveformErr) {
+                            if ((waveformErr as Error).message === 'Scan cancelled') throw waveformErr;
+
+                            console.warn(`[Audio] Waveform generation failed/timed out for ${path.basename(filePath)}, using generic icon. Error: ${(waveformErr as Error).message}`);
+
+                            // Fallback: Create Generic Music Icon (Blue Square)
+                            try {
+                                const genericBuffer = await sharp({
+                                    create: {
+                                        width: 300,
+                                        height: 300,
+                                        channels: 4,
+                                        background: { r: 30, g: 41, b: 59, alpha: 1 } // slate-800
+                                    }
+                                })
+                                    .composite([{
+                                        input: Buffer.from('<svg width="150" height="150" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>'),
+                                        gravity: 'center'
+                                    }])
+                                    .webp({ quality: 80 })
+                                    .toBuffer();
+
+                                this.db.insert(thumbnails).values({
+                                    mediaId: mediaId,
+                                    data: genericBuffer,
+                                    format: 'webp'
+                                }).run();
+                            } catch (genErr) {
+                                console.error('Failed to create generic thumbnail', genErr);
+                            }
+                        }
+                    }
+
+                } catch (audioErr) {
+                    console.error(`Failed to process audio ${filePath}: ${(audioErr as Error).message}`);
                 }
             }
 

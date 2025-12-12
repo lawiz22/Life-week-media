@@ -8,7 +8,14 @@ interface ImageDetailProps {
 
 export function ImageDetail({ media, onBack }: ImageDetailProps) {
     const [showAllMeta, setShowAllMeta] = useState(false);
-    const metadata = media.metadata as any;
+
+    // Safely parse metadata if string (from DB) or use object
+    let metadata: any = {};
+    try {
+        metadata = typeof media.metadata === 'string' ? JSON.parse(media.metadata) : media.metadata || {};
+    } catch (e) {
+        console.warn('Failed to parse metadata', e);
+    }
 
     // Helper to format date
     const getDate = () => {
@@ -164,20 +171,36 @@ export function ImageDetail({ media, onBack }: ImageDetailProps) {
                         style={{ backgroundImage: `url('media://thumbnail/${media.id}')`, backgroundSize: 'cover', backgroundPosition: 'center' }}
                     ></div>
 
-                    {/* Main Image */}
-                    <div className="relative z-10 max-w-full max-h-full flex flex-col items-center">
+                    {/* Main Image or Audio Player */}
+                    <div className="relative z-10 max-w-full max-h-full flex flex-col items-center justify-center p-8 w-full">
                         <img
-                            src={isAvailable ? `media://${encodeURIComponent(media.filepath)}` : `media://thumbnail/${media.id}`}
+                            src={isAvailable && media.type !== 'audio' ? `media://${encodeURIComponent(media.filepath)}` : `media://thumbnail/${media.id}`}
                             alt={media.filename}
-                            onClick={() => isAvailable && setShowLightbox(true)}
-                            className={`max-w-full max-h-[80vh] object-contain shadow-2xl transition-all duration-300 ${isAvailable ? 'cursor-zoom-in hover:scale-[1.01]' : 'opacity-40 grayscale cursor-not-allowed'}`}
+                            onClick={() => isAvailable && media.type !== 'audio' && setShowLightbox(true)}
+                            className={`max-w-full max-h-[60vh] object-contain shadow-2xl rounded-lg transition-all duration-300 
+                                ${media.type === 'audio' ? 'w-96 h-96 shadow-blue-900/40' : ''}
+                                ${isAvailable && media.type !== 'audio' ? 'cursor-zoom-in hover:scale-[1.01]' : ''}
+                                ${!isAvailable && media.type !== 'audio' ? 'opacity-40 grayscale cursor-not-allowed' : ''}
+                            `}
                             onError={(e) => {
                                 const img = e.currentTarget;
-                                // If main load fails, fall back to thumbnail and mark unavailable
-                                if (isAvailable) setIsAvailable(false);
+                                if (isAvailable && media.type !== 'audio') setIsAvailable(false);
                                 img.src = `media://thumbnail/${media.id}`;
                             }}
                         />
+
+                        {/* Audio Player */}
+                        {media.type === 'audio' && isAvailable && (
+                            <div className="mt-8 w-full max-w-2xl animate-in slide-in-from-bottom duration-500 fade-in fill-mode-backwards delay-150">
+                                <audio
+                                    controls
+                                    autoPlay
+                                    className="w-full h-12 shadow-lg"
+                                    src={`media://${encodeURIComponent(media.filepath)}`}
+                                />
+                            </div>
+                        )}
+
                         {!isAvailable && (
                             <div className="mt-4 bg-red-900/50 text-red-200 px-4 py-2 rounded-full flex items-center gap-2 border border-red-700/50 backdrop-blur-md">
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -194,16 +217,51 @@ export function ImageDetail({ media, onBack }: ImageDetailProps) {
                     <div className="p-6 space-y-8 flex-1">
                         {/* Major Info */}
                         <div>
-                            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Date Taken (Modified)</h3>
-                            <p className="text-xl font-extrabold text-white tracking-tight">
-                                {date || <span className="text-gray-600 font-normal italic">Unknown Date</span>}
-                            </p>
+                            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                                {media.type === 'audio' ? 'Track Details' : 'Date Taken'}
+                            </h3>
+                            {media.type === 'audio' ? (
+                                <div className="space-y-4">
+                                    <div>
+                                        <div className="text-2xl font-bold text-white leading-tight">{metadata?.title || media.filename}</div>
+                                        <div className="text-lg text-blue-400 font-medium">{metadata?.artist || 'Unknown Artist'}</div>
+                                    </div>
+
+                                    {metadata?.album && (
+                                        <div>
+                                            <div className="text-xs text-gray-500 uppercase">Album</div>
+                                            <div className="text-gray-300">{metadata.album}</div>
+                                        </div>
+                                    )}
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        {metadata?.year && (
+                                            <div>
+                                                <div className="text-xs text-gray-500 uppercase">Year</div>
+                                                <div className="text-gray-300">{metadata.year}</div>
+                                            </div>
+                                        )}
+                                        {metadata?.genre && (
+                                            <div>
+                                                <div className="text-xs text-gray-500 uppercase">Genre</div>
+                                                <div className="text-gray-300">{Array.isArray(metadata.genre) ? metadata.genre.join(', ') : metadata.genre}</div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : (
+                                <p className="text-xl font-extrabold text-white tracking-tight">
+                                    {date || <span className="text-gray-600 font-normal italic">Unknown Date</span>}
+                                </p>
+                            )}
                         </div>
 
-                        <div>
-                            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">GPS Location</h3>
-                            <p className={`font-mono ${gps !== 'N/A' ? 'text-blue-400' : 'text-gray-600'}`}>{gps}</p>
-                        </div>
+                        {media.type !== 'audio' && (
+                            <div>
+                                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">GPS Location</h3>
+                                <p className={`font-mono ${gps !== 'N/A' ? 'text-blue-400' : 'text-gray-600'}`}>{gps}</p>
+                            </div>
+                        )}
 
                         {/* Snapshot Stats */}
                         {stats.length > 0 && (

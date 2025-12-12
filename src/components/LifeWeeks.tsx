@@ -113,6 +113,20 @@ export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
             <div className="inline-block">
                 <h2 className="text-2xl font-bold mb-6 text-gray-200 text-center">Your Life in Weeks</h2>
 
+                {/* Legend */}
+                <div className="mb-6 flex flex-wrap gap-4 justify-center">
+                    {stages.map((stage, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                            <div className="w-4 h-4 rounded" style={{ backgroundColor: stage.color }}></div>
+                            <span className="text-sm text-gray-300">{stage.name}</span>
+                        </div>
+                    ))}
+                    <div className="flex items-center gap-2 border-l border-gray-700 pl-4">
+                        <div className="w-3 h-3 border-2 border-white bg-gray-600"></div>
+                        <span className="text-sm text-gray-300">Has Photos</span>
+                    </div>
+                </div>
+
                 <div className="grid grid-cols-[auto_1fr] gap-4">
                     {/* Y-Axis Labels (Ages) */}
                     <div className="flex flex-col justify-between py-1 text-xs text-gray-500 text-right pr-2" style={{ height: 'calc(100% - 20px)' }}>
@@ -145,19 +159,7 @@ export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
                     </div>
                 </div>
 
-                {/* Legend */}
-                <div className="mt-8 flex flex-wrap gap-4 justify-center">
-                    {stages.map((stage, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                            <div className="w-4 h-4 rounded" style={{ backgroundColor: stage.color }}></div>
-                            <span className="text-sm text-gray-300">{stage.name}</span>
-                        </div>
-                    ))}
-                    <div className="flex items-center gap-2 border-l border-gray-700 pl-4">
-                        <div className="w-3 h-3 border-2 border-white bg-gray-600"></div>
-                        <span className="text-sm text-gray-300">Has Photos</span>
-                    </div>
-                </div>
+
             </div>
         </div>
     );
