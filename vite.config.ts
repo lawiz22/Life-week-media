@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react'
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  base: './', // Use relative paths for Electron production builds
   plugins: [
     react(),
     electron({
@@ -14,7 +15,7 @@ export default defineConfig({
         vite: {
           build: {
             rollupOptions: {
-              external: ['better-sqlite3', 'sharp'],
+              external: ['better-sqlite3', 'sharp', 'fluent-ffmpeg', '@ffmpeg-installer/ffmpeg'],
             },
           },
         },

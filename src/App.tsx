@@ -3,7 +3,7 @@ import { Layout } from './components/Layout'
 import { LifeWeeks } from './components/LifeWeeks'
 import { MediaGrid, MediaFile } from './components/MediaGrid'
 import { DuplicatesList } from './components/DuplicatesList'
-import { ImageDetail } from './components/ImageDetail'
+import { DetailRouter } from './components/details/DetailRouter'
 import { ProjectDetail } from './components/ProjectDetail'
 
 // Define Tab type locally since it's used in state
@@ -124,7 +124,7 @@ function App() {
             onPrev={files.findIndex(f => f.id === selectedMedia.id) > 0 ? handlePrev : undefined}
           />
         ) : (
-          <ImageDetail
+          <DetailRouter
             media={selectedMedia}
             onBack={() => setSelectedMedia(null)}
             onNext={files.findIndex(f => f.id === selectedMedia.id) < files.length - 1 ? handleNext : undefined}

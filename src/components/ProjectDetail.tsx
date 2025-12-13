@@ -1,3 +1,4 @@
+import abletonLogo from '../assets/ableton_logo.jpg';
 import { MediaFile } from './MediaGrid';
 
 interface ProjectDetailProps {
@@ -76,7 +77,7 @@ export function ProjectDetail({ media, onBack, onNext, onPrev }: ProjectDetailPr
                     <div className="flex items-start space-x-6">
                         {/* Big Logo */}
                         <div className="w-24 h-24 flex-shrink-0 bg-gray-950 rounded-xl overflow-hidden shadow-xl border border-gray-800">
-                            <img src="/src/assets/ableton_logo.jpg" alt="Ableton Live" className="w-full h-full object-cover" />
+                            <img src={abletonLogo} alt="Ableton Live" className="w-full h-full object-cover" />
                         </div>
 
                         <div className="flex-1">

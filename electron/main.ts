@@ -1,9 +1,11 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, net } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, protocol, shell } from 'electron'
 import { getDb } from './db'
 import * as schema from './db/schema'
 import { eq } from 'drizzle-orm';
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { getTranscoder } from './transcoder'
+import fs from 'node:fs'; // Ensure top-level import
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -14,7 +16,7 @@ process.env.APP_ROOT = path.join(__dirname, '..')
 export const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron')
 export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
-import { pathToFileURL } from 'node:url';
+
 
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, 'public') : RENDERER_DIST
 
@@ -36,7 +38,6 @@ function createWindow() {
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
-    // win.loadFile('dist/index.html')
     win.loadFile(path.join(RENDERER_DIST, 'index.html'))
   }
 }
@@ -73,7 +74,95 @@ protocol.registerSchemesAsPrivileged([
   }
 ]);
 
+
 app.whenReady().then(() => {
+  console.log('--- MAIN PROCESS STARTED (Audio Fix Applied) ---');
+
+  // IPC Handler: Read file buffer (Moved to top for reliability)
+  ipcMain.handle('read-file-buffer', async (_, filePath: string) => {
+    console.log('[IPC] read-file-buffer called for:', filePath);
+    try {
+      // Handle media:// URLs (from WaveformPlayer)
+      let actualPath = filePath;
+      if (filePath.startsWith('media://file/')) {
+        const base64Path = filePath.replace('media://file/', '');
+        actualPath = Buffer.from(base64Path, 'base64').toString('utf-8');
+      } else if (filePath.startsWith('media://')) {
+        // Legacy format
+        actualPath = filePath.replace(/^media:\/\//, '');
+        actualPath = decodeURIComponent(actualPath);
+      }
+
+      // Check if file exists first
+      if (!fs.existsSync(actualPath)) {
+        console.error('[IPC] File not found:', actualPath);
+        return null;
+      }
+
+      const buffer = await fs.promises.readFile(actualPath);
+      return buffer;
+    } catch (e) {
+      console.error('[IPC] Read file buffer error:', e);
+      return null;
+    }
+  });
+
+  // IPC Handler: Read text file content
+  ipcMain.handle('read-text-file', async (_event, filePath: string) => {
+    try {
+      const fs = await import('fs');
+      const stat = await fs.promises.stat(filePath);
+
+      // Limit to 5MB to prevent memory issues
+      const MAX_SIZE = 5 * 1024 * 1024;
+      if (stat.size > MAX_SIZE) {
+        // Read only first 5MB
+        const fd = await fs.promises.open(filePath, 'r');
+        const buffer = Buffer.alloc(MAX_SIZE);
+        await fd.read(buffer, 0, MAX_SIZE, 0);
+        await fd.close();
+        return {
+          content: buffer.toString('utf-8'),
+          truncated: true,
+          size: stat.size
+        };
+      }
+
+      // Read full file
+      const content = await fs.promises.readFile(filePath, 'utf-8');
+      return {
+        content,
+        truncated: false,
+        size: stat.size
+      };
+    } catch (error) {
+      console.error('Error reading text file:', error);
+      throw error;
+    }
+  });
+
+  // IPC Handler: Open file with default external app
+  ipcMain.handle('open-external', async (_event, filePath: string) => {
+    try {
+      await shell.openPath(filePath);
+      return { success: true };
+    } catch (error) {
+      console.error('Error opening external file:', error);
+      throw error;
+    }
+  });
+
+  // IPC Handler: Check if file exists
+  ipcMain.handle('check-file-exists', async (_event, filePath: string) => {
+    try {
+      const fs = await import('fs');
+      await fs.promises.access(filePath, fs.constants.F_OK);
+      return true;
+    } catch (error) {
+      return false;
+    }
+  });
+
   // Register 'media' protocol to serve local files
   protocol.handle('media', async (request) => {
     // 1. Handle Thumbnails
@@ -105,12 +194,15 @@ app.whenReady().then(() => {
     // 2. Handle Files (Videos/Images) with Range Support
     try {
       let pathName = request.url;
+      console.log(`[Media Protocol] Raw request URL: ${request.url}`);
 
       if (pathName.startsWith('media://file/')) {
 
         const base64Path = pathName.replace('media://file/', '');
+        console.log(`[Media Protocol] Base64 path: ${base64Path.substring(0, 50)}...`);
 
         pathName = Buffer.from(base64Path, 'base64').toString('utf-8');
+        console.log(`[Media Protocol] Decoded path: ${pathName}`);
 
       } else {
 
@@ -133,21 +225,51 @@ app.whenReady().then(() => {
       }
 
       const filePath = path.normalize(pathName);
+      console.log(`[Media Protocol] Normalized file path: ${filePath}`);
 
       const fs = await import('fs');
-      const { Readable } = await import('stream');
 
-      const stat = await fs.promises.stat(filePath);
+      // Check if video needs transcoding
+      const transcoder = getTranscoder();
+      let actualFilePath = filePath;
+
+      console.log(`[Media Protocol] Requested file: ${filePath}`);
+      console.log(`[Media Protocol] File extension: ${path.extname(filePath)}`);
+      console.log(`[Media Protocol] Needs transcoding: ${transcoder.needsTranscoding(filePath)}`);
+
+      if (transcoder.needsTranscoding(filePath)) {
+        console.log(`[Transcoder] Video needs transcoding: ${filePath}`);
+        try {
+          // Get transcoded version (from cache or transcode on-demand)
+          actualFilePath = await transcoder.getTranscodedPath(filePath, (progress) => {
+            console.log(`[Transcoder] Progress: ${progress.toFixed(1)}%`);
+          });
+          console.log(`[Transcoder] Using transcoded file: ${actualFilePath}`);
+          console.log(`[Transcoder] Transcoded file exists: ${fs.existsSync(actualFilePath)}`);
+          if (fs.existsSync(actualFilePath)) {
+            const transcodedStats = fs.statSync(actualFilePath);
+            console.log(`[Transcoder] Transcoded file size: ${transcodedStats.size} bytes`);
+          }
+        } catch (err) {
+          console.error('[Transcoder] Transcoding failed:', err);
+          // Fall back to original file (may not play, but better than nothing)
+          actualFilePath = filePath;
+        }
+      }
+
+      const stat = await fs.promises.stat(actualFilePath);
       const fileSize = stat.size;
       const range = request.headers.get('Range');
 
       // Simple MIME detection
-      const ext = path.extname(filePath).toLowerCase();
+      const ext = path.extname(actualFilePath).toLowerCase();
       let mimeType = 'application/octet-stream';
       if (ext === '.mp4') mimeType = 'video/mp4';
       if (ext === '.mov') mimeType = 'video/quicktime';
       if (ext === '.webm') mimeType = 'video/webm';
       if (ext === '.avi') mimeType = 'video/x-msvideo';
+      if (ext === '.wmv') mimeType = 'video/x-ms-wmv';
+      if (ext === '.mpg' || ext === '.mpeg') mimeType = 'video/mpeg';
       if (ext === '.mkv') mimeType = 'video/x-matroska';
       if (ext === '.png') mimeType = 'image/png';
       if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
@@ -188,7 +310,7 @@ app.whenReady().then(() => {
         const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
         const chunksize = (end - start) + 1;
 
-        const stream = fs.createReadStream(filePath, { start, end });
+        const stream = fs.createReadStream(actualFilePath, { start, end });
         const readable = streamToWeb(stream);
 
         return new Response(readable as any, {
@@ -203,17 +325,25 @@ app.whenReady().then(() => {
         });
       } else {
         // Full File Request
-        const stream = fs.createReadStream(filePath);
+        const stream = fs.createReadStream(actualFilePath);
         const readable = streamToWeb(stream);
+
+        // Build headers
+        const headers: Record<string, string> = {
+          'Content-Length': fileSize.toString(),
+          'Content-Type': mimeType,
+          'Accept-Ranges': 'bytes',
+          'Access-Control-Allow-Origin': '*'
+        };
+
+        // For PDFs, set Content-Disposition to inline to prevent download popup
+        if (mimeType === 'application/pdf') {
+          headers['Content-Disposition'] = 'inline';
+        }
 
         return new Response(readable as any, {
           status: 200,
-          headers: {
-            'Content-Length': fileSize.toString(),
-            'Content-Type': mimeType,
-            'Accept-Ranges': 'bytes',
-            'Access-Control-Allow-Origin': '*'
-          }
+          headers
         });
       }
     } catch (e) {
@@ -317,12 +447,6 @@ app.whenReady().then(() => {
       const hasTitle = !!metadata.title;
       const hasArtist = !!metadata.artist;
       const hasAlbum = !!metadata.album;
-
-      // Get current file to check if it has a cover
-      const currentFile = db.select()
-        .from(schema.mediaFiles)
-        .where(eq(schema.mediaFiles.id, mediaId))
-        .get();
 
       // Check if file has a thumbnail (cover art)
       const hasCover = db.select()
@@ -520,27 +644,7 @@ app.whenReady().then(() => {
       return false;
     }
   });
-  ipcMain.handle('read-file-buffer', async (_, filePath: string) => {
-    const fs = await import('fs');
-    try {
-      // Handle media:// URLs (from WaveformPlayer)
-      let actualPath = filePath;
-      if (filePath.startsWith('media://file/')) {
-        const base64Path = filePath.replace('media://file/', '');
-        actualPath = Buffer.from(base64Path, 'base64').toString('utf-8');
-      } else if (filePath.startsWith('media://')) {
-        // Legacy format
-        actualPath = filePath.replace(/^media:\/\//, '');
-        actualPath = decodeURIComponent(actualPath);
-      }
 
-      const buffer = await fs.promises.readFile(actualPath);
-      return buffer; // Electron automatically handles Buffer serialization
-    } catch (e) {
-      console.error('Read file buffer error:', e);
-      return null;
-    }
-  });
 
   ipcMain.handle('delete-file', async (_, { id, filepath }: { id: number, filepath: string }) => {
     const fs = await import('fs');

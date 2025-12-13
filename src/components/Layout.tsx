@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import lifeweekLogo from '/lifeweek_media_logo.png';
 import { Settings } from './Settings';
 
 type Tab = 'life-weeks' | 'pictures' | 'video' | 'music' | 'audio' | 'projects' | 'documents' | 'duplicates' | 'settings';
@@ -110,7 +111,7 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
             <aside className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col">
                 <div className="p-6 border-b border-gray-800 flex justify-center">
                     <img
-                        src="/lifeweek_media_logo.png"
+                        src={lifeweekLogo}
                         alt="LifeWeek Media"
                         className="w-32 h-32"
                         onError={(e) => e.currentTarget.style.display = 'none'}

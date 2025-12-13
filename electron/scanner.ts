@@ -37,6 +37,16 @@ export interface ScanProgress {
     description?: string;
 }
 
+/**
+ * Normalize file path to ensure proper UTF-8 encoding
+ * This prevents corruption of special characters (é, à, etc.) on Windows
+ */
+function normalizeFilePath(filePath: string): string {
+    // Normalize Unicode characters to NFC (Canonical Decomposition, followed by Canonical Composition)
+    // This ensures consistent representation of accented characters
+    return filePath.normalize('NFC');
+}
+
 export class FileScanner {
     private db = getDb();
 
@@ -74,11 +84,15 @@ export class FileScanner {
         try {
             if (onProgress) onProgress({ status: 'scanning', file: dir, description: 'Scanning folder...' });
 
-            const list = await fs.promises.readdir(dir);
+            // Use buffer encoding to properly handle Unicode filenames on Windows
+            // This prevents corruption of special characters (é, à, etc.)
+            const listBuffers = await fs.promises.readdir(dir, { encoding: 'buffer' });
+            const list = listBuffers.map(buf => buf.toString('utf8'));
+
             for (const file of list) {
                 if (signal?.aborted) throw new Error('Scan cancelled');
 
-                const filePath = path.join(dir, file);
+                const filePath = normalizeFilePath(path.join(dir, file));
                 try {
                     // Use lstat to avoid following symlinks which cause infinite loops
                     const stat = await fs.promises.lstat(filePath);
@@ -122,8 +136,11 @@ export class FileScanner {
         try {
             if (onProgress) onProgress({ status: 'processing', file: filePath });
 
+            // Normalize path for consistent database lookups
+            const normalizedPath = normalizeFilePath(filePath);
+
             // Check if already in DB
-            const existing = this.db.select().from(mediaFiles).where(eq(mediaFiles.filepath, filePath)).get();
+            const existing = this.db.select().from(mediaFiles).where(eq(mediaFiles.filepath, normalizedPath)).get();
             if (existing) {
                 result.skipped++;
                 return;
@@ -178,10 +195,11 @@ export class FileScanner {
             const hash = await this.calculateHash(filePath);
             let metadata = null;
 
+            // Use the already normalized path from earlier in the function
             // 1. Insert Media File (Initial - Metadata placeholder)
             const insertResult = this.db.insert(mediaFiles).values({
-                filepath: filePath,
-                filename: path.basename(filePath),
+                filepath: normalizedPath,
+                filename: path.basename(normalizedPath),
                 type,
                 category: null, // Will be set for audio files after metadata extraction
                 size: stat.size,
@@ -437,6 +455,49 @@ export class FileScanner {
 
                 } catch (audioErr) {
                     console.error(`Failed to process audio ${filePath}: ${(audioErr as Error).message}`);
+                }
+            }
+
+            // Document Thumbnail (Generic Icon)
+            if (type === 'document') {
+                try {
+                    console.log(`[Thumbnail] Generating generic icon for document: ${path.basename(filePath)}`);
+
+                    // Different icons for different document types
+                    let icon = '';
+                    if (ext === '.pdf') {
+                        // PDF icon
+                        icon = '<svg width="150" height="150" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>';
+                    } else if (ext === '.txt') {
+                        // Text file icon
+                        icon = '<svg width="150" height="150" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="12" y1="9" x2="8" y2="9"></line></svg>';
+                    } else {
+                        // DOC/DOCX icon
+                        icon = '<svg width="150" height="150" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>';
+                    }
+
+                    const genericBuffer = await sharp({
+                        create: {
+                            width: 300,
+                            height: 300,
+                            channels: 4,
+                            background: { r: 30, g: 41, b: 59, alpha: 1 } // slate-800
+                        }
+                    })
+                        .composite([{
+                            input: Buffer.from(icon),
+                            gravity: 'center'
+                        }])
+                        .webp({ quality: 80 })
+                        .toBuffer();
+
+                    this.db.insert(thumbnails).values({
+                        mediaId: mediaId,
+                        data: genericBuffer,
+                        format: 'webp'
+                    }).run();
+                } catch (docErr) {
+                    console.error('Failed to create document thumbnail', docErr);
                 }
             }
 
@@ -937,7 +998,7 @@ export class FileScanner {
 
         } catch (outerErr) {
             console.error('Error reading/unzipping Ableton file:', outerErr);
-            return { status: 'ERROR', missing: [], total_samples: 0, unique_samples: 0, tempo: 0, timeSignature: '' };
+            return { status: 'ERROR', missing: [], valid_samples: [], total_samples: 0, unique_samples: 0, tempo: 0, timeSignature: '' };
         }
     }
 

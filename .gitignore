@@ -9,6 +9,7 @@ lerna-debug.log*
 
 node_modules
 dist
+
 dist-ssr
 *.local
 
@@ -25,6 +26,7 @@ dist-ssr
 
 dist-electron
 release
+
 library.db
 
 # Debug files
