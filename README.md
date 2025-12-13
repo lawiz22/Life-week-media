@@ -19,9 +19,15 @@ LifeWeeks Media is a powerful, local-first desktop application designed to bridg
 - **Smart Filtering**: Automatically categorizes files into:
   - 🖼️ **Pictures**: `.jpg`, `.png`, `.gif`, `.webp` (with auto-generated thumbnails!)
   - 🎥 **Videos**: `.mp4`, `.mov`, `.avi`, `.mkv`
-  - 🎵 **Music**: `.mp3`, `.wav`, `.flac`
+  - 🎵 **Music**: `.mp3`, `.wav`, `.flac` with complete metadata (title, artist, album, cover art)
+  - 🎧 **Audio**: Audio files with incomplete metadata
   - 📄 **Documents**: `.pdf`, `.doc`, `.txt`
   - 🛠️ **Projects**: *(Coming Soon)* Specialized handling for DAW & IDE projects.
+- **Music/Audio Separation** (New!):
+    - **Smart Categorization**: Automatically separates music (complete metadata) from generic audio files.
+    - **Metadata Editor**: Edit title, artist, album, year, and upload album covers.
+    - **Auto-Recategorization**: Files automatically move between Music and Audio tabs as metadata is completed.
+    - **Album Art Display**: Music files show album covers in grid and player views.
 - **Project X-Ray** (New!): Specialized scanning for Ableton Live Projects (`.als`).
     - **Deep Integrity Checks**: verifies existence of referenced audio files.
     - **Metadata Extraction**: Extracts Tempo (BPM), Time Signature, Total Samples, and Ableton Version.

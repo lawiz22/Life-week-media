@@ -104,8 +104,22 @@ app.whenReady().then(() => {
 
     // 2. Handle Files (Videos/Images) with Range Support
     try {
-      let pathName = request.url.replace(/^media:\/\//, '');
-      pathName = decodeURIComponent(pathName);
+      let pathName = request.url;
+
+      if (pathName.startsWith('media://file/')) {
+
+        const base64Path = pathName.replace('media://file/', '');
+
+        pathName = Buffer.from(base64Path, 'base64').toString('utf-8');
+
+      } else {
+
+        pathName = pathName.replace(/^media:\/\//, '');
+
+        pathName = decodeURIComponent(pathName);
+
+      }
+
 
       // 1. Strip leading slash if present (e.g. /C:/Users...)
       if (pathName.startsWith('/')) {
@@ -262,13 +276,25 @@ app.whenReady().then(() => {
     return await scanner.getDuplicates();
   });
 
-  ipcMain.handle('get-media', async (_, type: string) => {
+  ipcMain.handle('get-media', async (_, type: string, category?: string) => {
     const { FileScanner } = await import('./scanner');
     const scanner = new FileScanner();
-    const files = await scanner.getFiles(type);
+    let files = await scanner.getFiles(type);
+
+    console.log(`[get-media] Type: ${type}, Category filter: ${category}, Total files: ${files.length}`);
+
+    // Filter by category if provided (for audio files)
+    if (category && type === 'audio') {
+      console.log(`[get-media] Before filter:`, files.map(f => ({ filename: f.filename, category: (f as any).category })));
+      console.log(`[get-media] Sample metadata:`, files.slice(0, 2).map(f => ({
+        filename: f.filename,
+        metadata: f.metadata
+      })));
+      files = files.filter(f => (f as any).category === category);
+      console.log(`[get-media] After filter: ${files.length} files`);
+    }
 
     // Check availability for each file
-    // Using fs.promises.access to check if file exists
     const fs = await import('fs');
     const enrichedFiles = await Promise.all(files.map(async (file) => {
       try {
@@ -280,6 +306,81 @@ app.whenReady().then(() => {
     }));
 
     return enrichedFiles;
+  });
+
+  ipcMain.handle('update-audio-metadata', async (_, mediaId: number, metadata: { title: string, artist: string, album: string, year: string }) => {
+    try {
+      const db = getDb();
+
+      // Determine new category based on updated metadata
+      // Music requires: title, artist, album, and cover (we assume cover exists if it was already there)
+      const hasTitle = !!metadata.title;
+      const hasArtist = !!metadata.artist;
+      const hasAlbum = !!metadata.album;
+
+      // Get current file to check if it has a cover
+      const currentFile = db.select()
+        .from(schema.mediaFiles)
+        .where(eq(schema.mediaFiles.id, mediaId))
+        .get();
+
+      // Check if file has a thumbnail (cover art)
+      const hasCover = db.select()
+        .from(schema.thumbnails)
+        .where(eq(schema.thumbnails.mediaId, mediaId))
+        .get();
+
+      const newCategory = (hasTitle && hasArtist && hasAlbum && hasCover) ? 'music' : 'audio';
+
+      // Update metadata and category
+      db.update(schema.mediaFiles)
+        .set({
+          metadata: JSON.stringify(metadata),
+          category: newCategory
+        })
+        .where(eq(schema.mediaFiles.id, mediaId))
+        .run();
+
+      console.log(`Updated metadata for file ${mediaId}, new category: ${newCategory}`);
+      return { success: true, category: newCategory };
+    } catch (e) {
+      console.error('update-audio-metadata error:', e);
+      return { success: false, error: String(e) };
+    }
+  });
+
+  ipcMain.handle('upload-album-cover', async (_, mediaId: number, imageData: number[]) => {
+    try {
+      const sharp = (await import('sharp')).default;
+      const db = getDb();
+
+      // Convert array back to Buffer
+      const buffer = Buffer.from(imageData);
+
+      // Process image: resize and convert to webp
+      const thumbnailBuffer = await sharp(buffer)
+        .resize({ width: 300, height: 300, fit: 'cover' })
+        .webp({ quality: 80 })
+        .toBuffer();
+
+      // Delete existing thumbnail if any
+      db.delete(schema.thumbnails)
+        .where(eq(schema.thumbnails.mediaId, mediaId))
+        .run();
+
+      // Insert new thumbnail
+      db.insert(schema.thumbnails).values({
+        mediaId: mediaId,
+        data: thumbnailBuffer,
+        format: 'webp'
+      }).run();
+
+      console.log(`Uploaded album cover for file ${mediaId}`);
+      return { success: true };
+    } catch (e) {
+      console.error('upload-album-cover error:', e);
+      return { success: false, error: String(e) };
+    }
   });
 
   ipcMain.handle('get-media-stats', async (_, type: string) => {
@@ -422,7 +523,18 @@ app.whenReady().then(() => {
   ipcMain.handle('read-file-buffer', async (_, filePath: string) => {
     const fs = await import('fs');
     try {
-      const buffer = await fs.promises.readFile(filePath);
+      // Handle media:// URLs (from WaveformPlayer)
+      let actualPath = filePath;
+      if (filePath.startsWith('media://file/')) {
+        const base64Path = filePath.replace('media://file/', '');
+        actualPath = Buffer.from(base64Path, 'base64').toString('utf-8');
+      } else if (filePath.startsWith('media://')) {
+        // Legacy format
+        actualPath = filePath.replace(/^media:\/\//, '');
+        actualPath = decodeURIComponent(actualPath);
+      }
+
+      const buffer = await fs.promises.readFile(actualPath);
       return buffer; // Electron automatically handles Buffer serialization
     } catch (e) {
       console.error('Read file buffer error:', e);
@@ -458,4 +570,5 @@ app.whenReady().then(() => {
     }
   });
 })
+
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Settings } from './Settings';
 
-type Tab = 'life-weeks' | 'pictures' | 'video' | 'music' | 'projects' | 'documents' | 'duplicates' | 'settings';
+type Tab = 'life-weeks' | 'pictures' | 'video' | 'music' | 'audio' | 'projects' | 'documents' | 'duplicates' | 'settings';
 interface ScanResult {
     added: number;
     skipped: number;
@@ -26,6 +26,7 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
         { id: 'pictures', label: 'Pictures' },
         { id: 'video', label: 'Video' },
         { id: 'music', label: 'Music' },
+        { id: 'audio', label: 'Audio' },
         { id: 'projects', label: 'Projects' },
         { id: 'documents', label: 'Documents' },
         { id: 'duplicates', label: 'Duplicates' },
@@ -93,7 +94,8 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
         switch (activeTab) {
             case 'pictures': return { label: 'Import Pictures', icon: '+' };
             case 'video': return { label: 'Import Videos', icon: '+' };
-            case 'music': return { label: 'Import Music', icon: '+' };
+            case 'music': return { label: 'Import Music/Audio', icon: '+' };
+            case 'audio': return { label: 'Import Music/Audio', icon: '+' };
             case 'projects': return { label: 'Import Projects', icon: '+' };
             case 'documents': return { label: 'Import Documents', icon: '+' };
             default: return null; // Hide button for other tabs
@@ -106,10 +108,13 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
         <div className="flex h-screen bg-gray-950 text-white overflow-hidden font-sans">
             {/* Sidebar */}
             <aside className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col">
-                <div className="p-6 border-b border-gray-800">
-                    <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-                        LifeWeeks
-                    </h1>
+                <div className="p-6 border-b border-gray-800 flex justify-center">
+                    <img
+                        src="/lifeweek_media_logo.png"
+                        alt="LifeWeek Media"
+                        className="w-32 h-32"
+                        onError={(e) => e.currentTarget.style.display = 'none'}
+                    />
                 </div>
 
                 <nav className="flex-1 overflow-y-auto p-4 space-y-1">

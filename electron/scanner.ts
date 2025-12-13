@@ -183,6 +183,7 @@ export class FileScanner {
                 filepath: filePath,
                 filename: path.basename(filePath),
                 type,
+                category: null, // Will be set for audio files after metadata extraction
                 size: stat.size,
                 createdAt: Math.floor(stat.birthtimeMs),
                 hash,
@@ -337,9 +338,15 @@ export class FileScanner {
                         console.warn(`[Audio] Failed to parse tags for ${filePath}: ${(metaErr as Error).message}`);
                     }
 
-                    // Update DB with rich metadata
+                    // Determine category: 'music' or 'audio'
+                    const category = this.categorizeAudio(audioMeta, coverBuffer);
+
+                    // Update DB with rich metadata and category
                     this.db.update(mediaFiles)
-                        .set({ metadata: JSON.stringify(audioMeta) })
+                        .set({
+                            metadata: JSON.stringify(audioMeta),
+                            category: category
+                        })
                         .where(eq(mediaFiles.id, mediaId))
                         .run();
 
@@ -634,6 +641,24 @@ export class FileScanner {
             console.error(`Failed to process ${filePath}`, err);
             result.errors++;
         }
+    }
+
+    /**
+     * Categorize audio file as 'music' or 'audio' based on metadata completeness
+     * Music requires: title, artist, album, and cover art (year is optional)
+     */
+    private categorizeAudio(metadata: any, coverBuffer: Buffer | null): 'music' | 'audio' {
+        const hasArtist = !!metadata.artist;
+        const hasAlbum = !!metadata.album;
+        const hasTitle = !!metadata.title;
+        const hasCover = !!coverBuffer;
+
+        // Required fields for 'music' category (year is optional)
+        if (hasArtist && hasAlbum && hasTitle && hasCover) {
+            return 'music';
+        }
+
+        return 'audio';
     }
 
     private async parseAbletonProject(filePath: string): Promise<{

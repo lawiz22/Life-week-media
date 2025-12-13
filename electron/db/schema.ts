@@ -5,6 +5,7 @@ export const mediaFiles = sqliteTable('media_files', {
     filepath: text('filepath').notNull().unique(),
     filename: text('filename').notNull(),
     type: text('type').notNull(), // 'image', 'video', 'audio', 'project', 'document'
+    category: text('category'), // 'music' or 'audio' (for type='audio' only)
     size: integer('size'),
     createdAt: integer('created_at'),
     hash: text('hash'),

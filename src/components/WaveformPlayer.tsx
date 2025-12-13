@@ -6,6 +6,8 @@ interface WaveformPlayerProps {
     height?: number;
     waveColor?: string;
     progressColor?: string;
+    onSongEnd?: () => void;
+    autoPlay?: boolean;
 }
 
 export function WaveformPlayer({
@@ -13,6 +15,8 @@ export function WaveformPlayer({
     height = 120,
     waveColor = '#4b5563', // gray-600
     progressColor = '#3b82f6', // blue-500
+    onSongEnd,
+    autoPlay,
 }: WaveformPlayerProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const wavesurferRef = useRef<WaveSurfer | null>(null);
@@ -73,21 +77,19 @@ export function WaveformPlayer({
 
             ws.on('play', () => isMounted && setIsPlaying(true));
             ws.on('pause', () => isMounted && setIsPlaying(false));
-            ws.on('finish', () => isMounted && setIsPlaying(false));
+            ws.on('finish', () => {
+                if (isMounted) {
+                    setIsPlaying(false);
+                    onSongEnd?.();
+                }
+            });
 
-            // "src" is like media://C:/path/to/file.wav
-            // Remove protocol to get path
-            let filePath = src.replace('media://', '');
-            filePath = decodeURIComponent(filePath);
-
-            if (filePath.startsWith('/') && filePath.includes(':')) {
-                filePath = filePath.substring(1);
-            }
-
+            // Pass the full media:// URL to the IPC handler
+            // The backend will handle decoding (base64 for media://file/, or legacy for media://)
             try {
                 // Fetch buffer from Main process
                 // @ts-ignore
-                const buffer = await window.ipcRenderer?.invoke('read-file-buffer', filePath);
+                const buffer = await window.ipcRenderer?.invoke('read-file-buffer', src);
 
                 if (isMounted && buffer) {
                     const blob = new Blob([buffer], { type: 'audio/wav' });
@@ -96,6 +98,11 @@ export function WaveformPlayer({
                         // WaveSurfer v7 supports loading a Blob directly
                         await ws.loadBlob(blob);
                         wavesurferRef.current = ws;
+
+                        // Auto-play if enabled
+                        if (autoPlay) {
+                            ws.play();
+                        }
                     }
                 }
             } catch (e) {

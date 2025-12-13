@@ -40,6 +40,10 @@ export function getDb() {
     if (!hasMetadata) {
       sqlite.exec("ALTER TABLE media_files ADD COLUMN metadata TEXT");
     }
+    const hasCategory = info.some(c => c.name === 'category');
+    if (!hasCategory) {
+      sqlite.exec("ALTER TABLE media_files ADD COLUMN category TEXT");
+    }
   } catch (e) { /* ignore */ }
 
   sqlite.exec(`

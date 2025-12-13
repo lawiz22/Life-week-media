@@ -7,10 +7,14 @@ import { ImageDetail } from './components/ImageDetail'
 import { ProjectDetail } from './components/ProjectDetail'
 
 // Define Tab type locally since it's used in state
-type Tab = 'life-weeks' | 'pictures' | 'video' | 'music' | 'projects' | 'documents' | 'duplicates' | 'settings';
+type Tab = 'life-weeks' | 'pictures' | 'video' | 'music' | 'audio' | 'projects' | 'documents' | 'duplicates' | 'settings';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<Tab>('life-weeks')
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    // Restore active tab from sessionStorage
+    const saved = sessionStorage.getItem('activeTab');
+    return (saved as Tab) || 'life-weeks';
+  })
   const [selectedMedia, setSelectedMedia] = useState<MediaFile | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -22,24 +26,36 @@ function App() {
   const [pageSize, setPageSize] = useState(50)
   const [viewMode, setViewMode] = useState<'large' | 'medium' | 'small' | 'list'>('medium')
 
+  // Auto-play for music
+  const [autoPlayMusic, setAutoPlayMusic] = useState(false)
+
   // Load files when tab changes
   useEffect(() => {
     const loadFiles = async () => {
       // Only load for media tabs
-      const mediaTabs = ['pictures', 'video', 'music', 'documents', 'projects'];
+      const mediaTabs = ['pictures', 'video', 'music', 'audio', 'documents', 'projects'];
       if (!mediaTabs.includes(activeTab)) return;
 
       try {
         setLoading(true)
-        // Map tab name to scan type if needed, but current convention is 1:1 or close
+        // Map tab name to type and category
         let type = '';
+        let category: string | undefined = undefined;
+
         if (activeTab === 'pictures') type = 'image';
         if (activeTab === 'video') type = 'video';
-        if (activeTab === 'music') type = 'audio';
+        if (activeTab === 'music') {
+          type = 'audio';
+          category = 'music';
+        }
+        if (activeTab === 'audio') {
+          type = 'audio';
+          category = 'audio';
+        }
         if (activeTab === 'documents') type = 'document';
         if (activeTab === 'projects') type = 'project';
 
-        const result = await window.ipcRenderer?.invoke('get-media', type);
+        const result = await window.ipcRenderer?.invoke('get-media', type, category);
         setFiles(result || []);
       } catch (err) {
         console.error(err);
@@ -51,6 +67,11 @@ function App() {
 
     loadFiles();
   }, [activeTab, refreshKey]);
+
+  // Save active tab to sessionStorage whenever it changes
+  useEffect(() => {
+    sessionStorage.setItem('activeTab', activeTab);
+  }, [activeTab]);
 
   const handleTabChange = (t: Tab) => {
     setActiveTab(t)
@@ -79,11 +100,18 @@ function App() {
     }
   };
 
+  const handleSongEnd = () => {
+    if (autoPlayMusic && activeTab === 'music') {
+      handleNext();
+    }
+  };
+
   const currentType = activeTab === 'pictures' ? 'image' :
     activeTab === 'video' ? 'video' :
       activeTab === 'music' ? 'audio' :
-        activeTab === 'documents' ? 'document' :
-          activeTab === 'projects' ? 'project' : '';
+        activeTab === 'audio' ? 'audio' :
+          activeTab === 'documents' ? 'document' :
+            activeTab === 'projects' ? 'project' : '';
 
   return (
     <Layout activeTab={activeTab} onTabChange={handleTabChange} onScanComplete={handleScanComplete}>
@@ -101,6 +129,7 @@ function App() {
             onBack={() => setSelectedMedia(null)}
             onNext={files.findIndex(f => f.id === selectedMedia.id) < files.length - 1 ? handleNext : undefined}
             onPrev={files.findIndex(f => f.id === selectedMedia.id) > 0 ? handlePrev : undefined}
+            onSongEnd={activeTab === 'music' ? handleSongEnd : undefined}
           />
         )
       ) : (
@@ -108,7 +137,7 @@ function App() {
           {/* ... other tabs ... */}
           {activeTab === 'life-weeks' && <LifeWeeks refreshKey={refreshKey} />}
 
-          {['pictures', 'video', 'music', 'documents', 'projects'].includes(activeTab) && (
+          {['pictures', 'video', 'music', 'audio', 'documents', 'projects'].includes(activeTab) && (
             <MediaGrid
               type={currentType}
               files={files}
@@ -122,6 +151,10 @@ function App() {
               onPageSizeChange={setPageSize}
               viewMode={viewMode}
               onViewModeChange={setViewMode}
+
+              // Auto-play (music only)
+              autoPlay={activeTab === 'music' ? autoPlayMusic : undefined}
+              onAutoPlayChange={activeTab === 'music' ? setAutoPlayMusic : undefined}
             />
           )}
 
