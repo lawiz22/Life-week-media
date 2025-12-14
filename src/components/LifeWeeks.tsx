@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { WeekDetailModal } from './WeekDetailModal';
 
 interface LifeStage {
     name: string;
@@ -9,16 +10,17 @@ interface LifeStage {
 
 interface LifeWeeksProps {
     refreshKey?: number;
+    onNavigateToMedia: (file: any) => void;
 }
 
-export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
+export function LifeWeeks({ refreshKey, onNavigateToMedia }: LifeWeeksProps) {
     const [dob, setDob] = useState<string | null>(null);
     const [stages, setStages] = useState<LifeStage[]>([]);
     const [loading, setLoading] = useState(true);
 
-    const [imageCounts, setImageCounts] = useState<Record<number, number>>({});
-    const [videoCounts, setVideoCounts] = useState<Record<number, number>>({});
-    const [projectCounts, setProjectCounts] = useState<Record<number, number>>({});
+    const [imageFiles, setImageFiles] = useState<Record<number, any[]>>({});
+    const [videoFiles, setVideoFiles] = useState<Record<number, any[]>>({});
+    const [projectFiles, setProjectFiles] = useState<Record<number, any[]>>({});
 
     const WEEKS_IN_YEAR = 52;
     const TOTAL_YEARS = 90;
@@ -26,6 +28,23 @@ export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
 
     const [legendPosition, setLegendPosition] = useState<'top' | 'bottom'>('top');
     const [showWeekTotals, setShowWeekTotals] = useState(true);
+
+    const [selectedWeek, setSelectedWeek] = useState<{ index: number; start: string; end: string; files: any[] } | null>(null);
+
+    const handleWeekClick = (weekIndex: number) => {
+        const files = [
+            ...(imageFiles[weekIndex] || []),
+            ...(videoFiles[weekIndex] || []),
+            ...(projectFiles[weekIndex] || [])
+        ];
+
+        setSelectedWeek({
+            index: weekIndex,
+            start: getWeekDateRange(weekIndex).split(' - ')[0],
+            end: getWeekDateRange(weekIndex).split(' - ')[1],
+            files
+        });
+    };
 
     useEffect(() => {
         const load = async () => {
@@ -49,10 +68,11 @@ export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
             if (dobVal) {
                 const birthTime = new Date(dobVal).getTime();
 
-                // Helper to process stats into counts
+                // Helper to process stats into files
                 const processStats = (items: any[]) => {
-                    const counts: Record<number, number> = {};
+                    const counts: Record<number, any[]> = {};
                     if (!items) return counts;
+
 
                     items.forEach((item: { createdAt: number; metadata?: any }) => {
                         let itemDate = item.createdAt;
@@ -79,19 +99,20 @@ export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
                         // Allow for slightly before birth (pre-natal?) or just ignore
                         const diffWeeks = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7));
                         if (diffWeeks >= 0 && diffWeeks < TOTAL_WEEKS) {
-                            counts[diffWeeks] = (counts[diffWeeks] || 0) + 1;
+                            if (!counts[diffWeeks]) counts[diffWeeks] = [];
+                            counts[diffWeeks].push(item);
                         }
                     });
                     return counts;
                 };
 
-                const imgCounts = processStats(stats);
-                const vidCounts = processStats(videoStats);
-                const projCounts = processStats(projectStats);
+                const imgFiles = processStats(stats);
+                const vidFiles = processStats(videoStats);
+                const projFiles = processStats(projectStats);
 
-                setImageCounts(imgCounts);
-                setVideoCounts(vidCounts);
-                setProjectCounts(projCounts);
+                setImageFiles(imgFiles);
+                setVideoFiles(vidFiles);
+                setProjectFiles(projFiles);
             }
 
             setLoading(false);
@@ -156,15 +177,28 @@ export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
         </div>
     );
 
+
+
     return (
-        <div className="w-full p-8 flex flex-col items-center">
+        <div className="w-full p-8 flex flex-col items-center relative">
+            {/* Modal */}
+            <WeekDetailModal
+                isOpen={!!selectedWeek}
+                onClose={() => setSelectedWeek(null)}
+                weekIndex={selectedWeek?.index || 0}
+                startDate={selectedWeek?.start || ''}
+                endDate={selectedWeek?.end || ''}
+                onNavigate={onNavigateToMedia}
+                files={selectedWeek?.files || []}
+            />
+
             <div className="flex flex-col items-center">
                 <h2 className="text-3xl font-light tracking-[0.2em] uppercase mb-8 text-blue-100/90 text-center drop-shadow-sm">Your Life in Weeks</h2>
 
-                {/* Legend Top */}
-                {legendPosition === 'top' && legend}
+                {/* Legend Top (Removed) */}
+                {/* {legendPosition === 'top' && legend} */}
 
-                <div className="grid grid-cols-[auto_1fr] gap-4">
+                <div className="grid grid-cols-[auto_1fr_auto] gap-4 w-full max-w-[1400px]">
                     {/* Y-Axis Labels (Ages) */}
                     <div className="flex flex-col justify-between py-1 text-xs text-gray-500 text-right pr-2" style={{ height: 'calc(100% - 20px)' }}>
                         {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90].map(age => (
@@ -178,9 +212,9 @@ export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
                             .filter(item => !item.stage || (item.stage as any).visible !== false)
                             .map(({ index: i, stage }) => {
                                 const isPast = i <= currentWeekIndex;
-                                const imgCount = imageCounts[i] || 0;
-                                const vidCount = videoCounts[i] || 0;
-                                const projCount = projectCounts[i] || 0;
+                                const imgCount = imageFiles[i]?.length || 0;
+                                const vidCount = videoFiles[i]?.length || 0;
+                                const projCount = projectFiles[i]?.length || 0;
                                 const hasActivity = imgCount > 0 || vidCount > 0 || projCount > 0;
                                 const dateRange = getWeekDateRange(i);
 
@@ -208,7 +242,7 @@ export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
                                 return (
                                     <div
                                         key={i}
-                                        className={`w-3 h-3 border rounded-[1px] transition-all duration-300 box-border ${hasActivity ? 'hover:scale-150 z-10' : ''}`}
+                                        className={`w-3 h-3 border rounded-[1px] transition-all duration-300 box-border ${hasActivity ? 'hover:scale-150 z-10 cursor-pointer' : ''}`}
                                         style={{
                                             ...bgStyle,
                                             filter: filterStyle,
@@ -216,14 +250,44 @@ export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
                                             border: activityBorder,
                                         }}
                                         title={title}
+                                        onClick={() => hasActivity && handleWeekClick(i)}
                                     />
                                 );
                             })}
                     </div>
+
+                    {/* Right Axis - Stage Labels */}
+                    <div className="relative h-full min-w-[150px] hidden md:block">
+                        {stages.filter(s => (s as any).visible !== false).map((stage, i) => (
+                            <div
+                                key={i}
+                                className="absolute left-0 text-xs font-light uppercase tracking-widest transition-opacity hover:opacity-100 opacity-80"
+                                style={{
+                                    top: `${(stage.startAge / 90) * 100}%`,
+                                    color: stage.color,
+                                    transform: 'translateY(-50%)', // Center on the line
+                                    marginTop: '8px' // Slight optical adjustment
+                                }}
+                            >
+                                {stage.name}
+                            </div>
+                        ))}
+                    </div>
                 </div>
 
-                {/* Legend Bottom */}
-                {legendPosition === 'bottom' && legend}
+                {/* Mini Legend - Media Types */}
+                <div className="flex items-center gap-6 mt-8 opacity-60 hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 border-[1.5px] border-white bg-gray-600"></div>
+                        <span className="text-xs text-gray-400 uppercase tracking-wider">Moments</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 bg-gray-900/80 border border-gray-600 relative overflow-hidden">
+                            <div className="absolute inset-0 bg-black/40"></div>
+                        </div>
+                        <span className="text-xs text-gray-400 uppercase tracking-wider">Projects</span>
+                    </div>
+                </div>
 
             </div>
         </div>

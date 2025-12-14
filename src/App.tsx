@@ -135,7 +135,17 @@ function App() {
       ) : (
         <>
           {/* ... other tabs ... */}
-          {activeTab === 'life-weeks' && <LifeWeeks refreshKey={refreshKey} />}
+          {activeTab === 'life-weeks' && (
+            <LifeWeeks
+              refreshKey={refreshKey}
+              onNavigateToMedia={(file) => {
+                setSelectedMedia(file);
+                if (file.type === 'image') setActiveTab('pictures');
+                else if (file.type === 'video') setActiveTab('video');
+                else if (file.type === 'project') setActiveTab('projects');
+              }}
+            />
+          )}
 
           {['pictures', 'video', 'music', 'audio', 'documents', 'projects'].includes(activeTab) && (
             <MediaGrid

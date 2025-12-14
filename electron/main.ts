@@ -438,6 +438,13 @@ app.whenReady().then(() => {
     return enrichedFiles;
   });
 
+  ipcMain.handle('get-media-by-date-range', async (_, startTs: number, endTs: number) => {
+    const { FileScanner } = await import('./scanner');
+    const scanner = new FileScanner();
+    const files = await scanner.getFilesByDateRange(startTs, endTs);
+    return files;
+  });
+
   ipcMain.handle('update-audio-metadata', async (_, mediaId: number, metadata: { title: string, artist: string, album: string, year: string }) => {
     try {
       const db = getDb();
@@ -510,6 +517,12 @@ app.whenReady().then(() => {
   ipcMain.handle('get-media-stats', async (_, type: string) => {
     const db = getDb();
     const result = db.select({
+      id: schema.mediaFiles.id,
+      filename: schema.mediaFiles.filename,
+      filepath: schema.mediaFiles.filepath,
+      type: schema.mediaFiles.type,
+      size: schema.mediaFiles.size,
+      hash: schema.mediaFiles.hash,
       createdAt: schema.mediaFiles.createdAt,
       metadata: schema.mediaFiles.metadata
     })

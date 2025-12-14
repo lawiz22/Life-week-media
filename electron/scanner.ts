@@ -986,6 +986,21 @@ export class FileScanner {
             .all();
     }
 
+    async getFilesByDateRange(startTs: number, endTs: number) {
+        // Find files where createdAt (or metadata date) is within range
+        // For simplicity and speed, we mainly use createdAt which we populated during scan
+        // In processStats (frontend) we do complex fallback. 
+        // Ideally we should have a reliable 'date' column in DB.
+        // Current schema has 'createdAt' (integer timestamp).
+
+        return this.db
+            .select()
+            .from(mediaFiles)
+            .where(sql`${mediaFiles.createdAt} >= ${startTs} AND ${mediaFiles.createdAt} <= ${endTs}`)
+            .orderBy(mediaFiles.createdAt)
+            .all();
+    }
+
     // Helper to generate video thumbnail with fallback
     private async generateVideoThumbnail(filePath: string, mediaId: number, size: number, signal?: AbortSignal) {
         // Attempt 1: Smart Seek (10s or 22s)

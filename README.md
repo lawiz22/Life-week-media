@@ -11,8 +11,10 @@ LifeWeeks Media is a powerful, local-first desktop application designed to bridg
 
 ### 📅 Life in Weeks Visualization
 - **Memento Mori**: Visualize your entire life in a grid of 4,680 weeks (90 years).
-- **Stage Tracking**: Customize life stages (Early Years, School, Career, Retirement) with distinct colors.
+- **Interactive Details**: Click any active week to open a modal showing all photos, videos, and projects from that time.
+- **Stage Tracking**: Vertical labels clearly mark mapped life stages (Early Years, School, Career, etc.) on the timeline.
 - **Personalized**: Set your date of birth to see exactly where you stand today.
+- **Smart Legend**: Mini-legend indicates weeks with "Moments" (Media) vs "Projects" (Creative Work).
 
 ### 📂 Intelligent Media Scanning
 - **Deep Scan**: Recursively scan specific folders or entire drives for your digital assets.
@@ -118,8 +120,8 @@ The output (installer/executable) will be generated in the `release/` or `dist/`
 ---
 
 ## 📝 Roadmap
-- [ ] **Project Importing**: Special handling for `.als`, `.prproj`, etc.
-- [ ] **Timeline View**: Map media items to specific weeks in your life grid.
+- [x] **Project Importing**: Special handling for `.als`, `.prproj`, etc. (Done)
+- [x] **Timeline View**: Detail views and Life Week Modal implemented.
 - [ ] **Tagging System**: Add custom tags to organize media beyond folders.
 - [ ] **Video Previews**: Hover-to-play for video files.
 
