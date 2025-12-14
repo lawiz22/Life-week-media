@@ -26,7 +26,7 @@ export function LifeWeeks({ refreshKey, onNavigateToMedia }: LifeWeeksProps) {
     const TOTAL_YEARS = 90;
     const TOTAL_WEEKS = TOTAL_YEARS * WEEKS_IN_YEAR;
 
-    const [legendPosition, setLegendPosition] = useState<'top' | 'bottom'>('top');
+    // const [legendPosition, setLegendPosition] = useState<'top' | 'bottom'>('top');
     const [showWeekTotals, setShowWeekTotals] = useState(true);
 
     const [selectedWeek, setSelectedWeek] = useState<{ index: number; start: string; end: string; files: any[] } | null>(null);
@@ -60,7 +60,7 @@ export function LifeWeeks({ refreshKey, onNavigateToMedia }: LifeWeeksProps) {
             if (settings) {
                 setDob(settings.dob);
                 setStages(settings.stages);
-                if (settings.legendPosition) setLegendPosition(settings.legendPosition);
+                // if (settings.legendPosition) setLegendPosition(settings.legendPosition);
                 if (settings.showWeekTotals !== undefined) setShowWeekTotals(settings.showWeekTotals);
                 dobVal = settings.dob;
             }
@@ -155,27 +155,27 @@ export function LifeWeeks({ refreshKey, onNavigateToMedia }: LifeWeeksProps) {
         return `${formatDate(weekStart)} - ${formatDate(weekEnd)}`;
     };
 
-    const legend = (
-        <div className={`flex flex-wrap gap-4 justify-center ${legendPosition === 'bottom' ? 'mt-6' : 'mb-6'}`}>
-            {stages.filter(s => (s as any).visible !== false).map((stage, i) => (
-                <div key={i} className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded" style={{ backgroundColor: stage.color }}></div>
-                    <span className="text-sm text-gray-300">{stage.name}</span>
-                </div>
-            ))}
-            <div className="flex items-center gap-2 border-l border-gray-700 pl-4">
-                <div className="w-3 h-3 border-[1.5px] border-white bg-gray-600"></div>
-                <span className="text-sm text-gray-300">Photos & Videos</span>
-            </div>
-            <div className="flex items-center gap-2 ml-2">
-                {/* Greyed out style for projects */}
-                <div className="w-3 h-3 bg-gray-900/80 border border-gray-600 relative overflow-hidden">
-                    <div className="absolute inset-0 bg-black/40"></div>
-                </div>
-                <span className="text-sm text-gray-300">Has Projects</span>
-            </div>
-        </div>
-    );
+    // const legend = (
+    //     <div className={`flex flex-wrap gap-4 justify-center ${legendPosition === 'bottom' ? 'mt-6' : 'mb-6'}`}>
+    //         {stages.filter(s => (s as any).visible !== false).map((stage, i) => (
+    //             <div key={i} className="flex items-center gap-2">
+    //                 <div className="w-4 h-4 rounded" style={{ backgroundColor: stage.color }}></div>
+    //                 <span className="text-sm text-gray-300">{stage.name}</span>
+    //             </div>
+    //         ))}
+    //         <div className="flex items-center gap-2 border-l border-gray-700 pl-4">
+    //             <div className="w-3 h-3 border-[1.5px] border-white bg-gray-600"></div>
+    //             <span className="text-sm text-gray-300">Photos & Videos</span>
+    //         </div>
+    //         <div className="flex items-center gap-2 ml-2">
+    //             {/* Greyed out style for projects */}
+    //             <div className="w-3 h-3 bg-gray-900/80 border border-gray-600 relative overflow-hidden">
+    //                 <div className="absolute inset-0 bg-black/40"></div>
+    //             </div>
+    //             <span className="text-sm text-gray-300">Has Projects</span>
+    //         </div>
+    //     </div>
+    // );
 
 
 
