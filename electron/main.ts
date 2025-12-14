@@ -566,24 +566,35 @@ app.whenReady().then(() => {
       stages = db.select().from(schema.lifeStages).orderBy(schema.lifeStages.startAge).all();
     }
 
-    // Init DOB if empty
-    let dob = settings.find(s => s.key === 'dob')?.value;
-    if (!dob) {
-      dob = '1990-01-01'; // Default
+    // Settings Defaults
+    const getValue = (key: string, def: string) => settings.find(s => s.key === key)?.value || def;
+
+    const dob = getValue('dob', '1990-01-01');
+    const legendPosition = getValue('legendPosition', 'top');
+    const showWeekTotals = getValue('showWeekTotals', 'true'); // Stored as string
+
+    // Ensure DOB exists in DB if it was default
+    if (!settings.find(s => s.key === 'dob')) {
       db.insert(schema.userSettings).values({ key: 'dob', value: dob }).run();
     }
 
-    return { dob, stages };
+    return { dob, stages, legendPosition, showWeekTotals: showWeekTotals === 'true' };
   });
 
-  ipcMain.handle('save-settings', async (_, { dob, stages }: { dob: string, stages: any[] }) => {
+  ipcMain.handle('save-settings', async (_, { dob, stages, legendPosition, showWeekTotals }: { dob: string, stages: any[], legendPosition: string, showWeekTotals: boolean }) => {
     const db = getDb();
     try {
-      // Update DOB
-      db.insert(schema.userSettings)
-        .values({ key: 'dob', value: dob })
-        .onConflictDoUpdate({ target: schema.userSettings.key, set: { value: dob } })
-        .run();
+      // Helper to upsert
+      const upsert = (key: string, value: string) => {
+        db.insert(schema.userSettings)
+          .values({ key, value })
+          .onConflictDoUpdate({ target: schema.userSettings.key, set: { value } })
+          .run();
+      };
+
+      upsert('dob', dob);
+      upsert('legendPosition', legendPosition);
+      upsert('showWeekTotals', String(showWeekTotals));
 
       // Replace Stages
       db.delete(schema.lifeStages).run();
@@ -635,15 +646,7 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.handle('check-file-exists', async (_, filePath: string) => {
-    const fs = await import('fs');
-    try {
-      await fs.promises.access(filePath, fs.constants.F_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  });
+
 
 
   ipcMain.handle('delete-file', async (_, { id, filepath }: { id: number, filepath: string }) => {

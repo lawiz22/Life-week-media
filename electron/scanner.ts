@@ -203,7 +203,7 @@ export class FileScanner {
                 type,
                 category: null, // Will be set for audio files after metadata extraction
                 size: stat.size,
-                createdAt: Math.floor(stat.birthtimeMs),
+                createdAt: Math.floor(stat.mtimeMs),
                 hash,
                 metadata: '{}' // Temp placeholder
             }).returning({ id: mediaFiles.id }).get();
@@ -233,97 +233,12 @@ export class FileScanner {
             } else if (type === 'video') {
                 if (onProgress) onProgress({ status: 'generating_thumbnail', file: filePath, description: 'Generating video thumbnail...' });
                 try {
-                    const t0 = performance.now();
-                    const isBigVideo = stat.size > 500 * 1024 * 1024; // 500MB
-                    const timestamp = isBigVideo ? '00:00:22.000' : '00:00:10.000';
-
-                    console.log(`[Thumbnail] Video: ${path.basename(filePath)} | Size: ${(stat.size / 1024 / 1024).toFixed(2)}MB | Seek: ${timestamp}`);
-
-                    const tempThumb = path.join(os.tmpdir(), `thumb_${mediaId}_${Date.now()}.jpg`); // Use jpg for speed
-
-                    await Promise.race([
-                        new Promise((resolve, reject) => {
-                            // Raw spawn to guarantee "-ss" is before "-i" (Input Seeking)
-                            const args = [
-                                '-y',              // Overwrite
-                                '-ss', timestamp,  // Seek BEFORE input (Fast)
-                                '-i', filePath,    // Input
-                                '-vframes', '1',   // 1 frame
-                                '-f', 'image2',    // Format
-                                tempThumb
-                            ];
-
-                            const proc = spawn(ffmpegPath, args);
-
-                            proc.on('close', (code) => {
-                                if (code === 0) resolve(null);
-                                else reject(new Error(`FFmpeg exited with code ${code}`));
-                            });
-
-                            proc.on('error', (err) => reject(err));
-                        }),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 15000))
-                    ]);
-
-                    const t1 = performance.now();
-                    console.log(`[Thumbnail] FFmpeg took ${(t1 - t0).toFixed(2)}ms for ${path.basename(filePath)}`);
-
-                    if (signal?.aborted) {
-                        try { await fs.promises.unlink(tempThumb); } catch { }
-                        throw new Error('Scan cancelled');
-                    }
-
-                    // Convert to webp
-                    const thumbnailBuffer = await sharp(tempThumb)
-                        .resize({ width: 300, height: 300, fit: 'cover' })
-                        .webp({ quality: 80 })
-                        .toBuffer();
-
-                    this.db.insert(thumbnails).values({
-                        mediaId: mediaId,
-                        data: thumbnailBuffer,
-                        format: 'webp'
-                    }).run();
-
-                    // Cleanup: Safe unlink (ignore EPERM if file is locked)
-                    try {
-                        await fs.promises.unlink(tempThumb);
-                    } catch (e) {
-                        // warning only, don't fail the scan
-                        console.warn(`[Cleanup] Could not delete temp file ${tempThumb}: ${(e as Error).message}`);
-                    }
+                    await this.generateVideoThumbnail(filePath, mediaId, stat.size, signal);
                     console.log(`[Thumbnail] Finished video thumbnail: ${filePath}`);
                 } catch (vidErr) {
                     if ((vidErr as Error).message === 'Scan cancelled') throw vidErr;
                     console.error(`Failed to generate video thumbnail for ${filePath}:`, vidErr);
-
-                    // Fallback: Generic Video Icon
-                    try {
-                        const genericBuffer = await sharp({
-                            create: {
-                                width: 300,
-                                height: 300,
-                                channels: 4,
-                                background: { r: 15, g: 23, b: 42, alpha: 1 } // slate-900
-                            }
-                        })
-                            .composite([{
-                                input: Buffer.from('<svg width="150" height="150" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>'),
-                                gravity: 'center'
-                            }])
-                            .webp({ quality: 80 })
-                            .toBuffer();
-
-                        this.db.insert(thumbnails).values({
-                            mediaId: mediaId,
-                            data: genericBuffer,
-                            format: 'webp'
-                        }).run();
-                    } catch (genErr) {
-                        console.error('Failed to create fallback video thumbnail', genErr);
-                    }
                 }
-
             } else if (type === 'audio') {
                 // Audio Metadata & Thumbnail (Cover Art or Waveform)
                 if (onProgress) onProgress({ status: 'generating_thumbnail', file: filePath, description: 'Processing audio metadata...' });
@@ -981,7 +896,7 @@ export class FileScanner {
 
             return {
                 status: missing.length > 0 ? 'MISSING_FILES' : 'OK',
-                missing,
+                missing: Array.from(new Set(missing)),
                 valid_samples: Array.from(new Set(valid_samples)), // Dedup valid samples
                 total_samples: samples.length,
                 unique_samples: uniqueSamples.size,
@@ -1069,6 +984,94 @@ export class FileScanner {
             .where(inArray(mediaFiles.hash, hashes))
             .orderBy(mediaFiles.hash)
             .all();
+    }
+
+    // Helper to generate video thumbnail with fallback
+    private async generateVideoThumbnail(filePath: string, mediaId: number, size: number, signal?: AbortSignal) {
+        // Attempt 1: Smart Seek (10s or 22s)
+        const isBigVideo = size > 500 * 1024 * 1024; // 500MB
+        const targetTimestamp = isBigVideo ? '00:00:22.000' : '00:00:10.000';
+
+        try {
+            await this.runFfmpegThumbnail(filePath, mediaId, targetTimestamp, signal);
+        } catch (e) {
+            console.warn(`[Thumbnail] Smart seek failed for ${path.basename(filePath)}, trying fallback 0s. Error:`, e);
+
+            if (signal?.aborted) throw e;
+
+            // Attempt 2: Fallback to 0s
+            try {
+                await this.runFfmpegThumbnail(filePath, mediaId, '00:00:00.000', signal);
+                console.log(`[Thumbnail] Fallback success for ${path.basename(filePath)}`);
+            } catch (e2) {
+                console.error(`[Thumbnail] Fallback failed for ${path.basename(filePath)}`, e2);
+                throw e2;
+            }
+        }
+    }
+
+    private async runFfmpegThumbnail(filePath: string, mediaId: number, timestamp: string, signal?: AbortSignal) {
+        const tempThumb = path.join(os.tmpdir(), `thumb_${mediaId}_${Date.now()}.jpg`);
+        const t0 = performance.now();
+
+        try {
+            await Promise.race([
+                new Promise((resolve, reject) => {
+                    // Capture stderr for better debugging
+                    let stderr = '';
+
+                    const args = [
+                        '-y',
+                        '-ss', timestamp,
+                        '-i', filePath,
+                        '-vframes', '1',
+                        '-f', 'image2',
+                        tempThumb
+                    ];
+
+                    const proc = spawn(ffmpegPath, args);
+
+                    proc.stderr.on('data', (d) => stderr += d.toString());
+
+                    proc.on('close', (code) => {
+                        if (code === 0) resolve(null);
+                        else reject(new Error(`FFmpeg exited with code ${code}. Stderr: ${stderr}`));
+                    });
+
+                    proc.on('error', (err) => reject(err));
+                }),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 30000)) // 30s timeout
+            ]);
+
+            if (signal?.aborted) throw new Error('Scan cancelled');
+
+            const t1 = performance.now();
+            console.log(`[Thumbnail] Generated at ${timestamp} in ${(t1 - t0).toFixed(2)}ms`);
+
+            // Check if file actually exists and has size
+            const stat = await fs.promises.stat(tempThumb);
+            if (stat.size === 0) throw new Error('Empty thumbnail file generated');
+
+            // Convert to efficient WebP
+            const thumbnailBuffer = await sharp(tempThumb)
+                .resize({ width: 300, height: 300, fit: 'cover' })
+                .webp({ quality: 80 })
+                .toBuffer();
+
+            this.db.insert(thumbnails).values({
+                mediaId: mediaId,
+                data: thumbnailBuffer,
+                format: 'webp'
+            }).run();
+
+        } finally {
+            // Always try to clean up temp file
+            try {
+                if (fs.existsSync(tempThumb)) {
+                    await fs.promises.unlink(tempThumb);
+                }
+            } catch { /* ignore cleanup errors */ }
+        }
     }
 
     async getFiles(type: string) {

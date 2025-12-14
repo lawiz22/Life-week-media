@@ -123,7 +123,7 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
                         <button
                             key={tab.id}
                             onClick={() => onTabChange(tab.id)}
-                            className={`w-full text-left px-4 py-2 rounded-md transition-all duration-200 ${activeTab === tab.id
+                            className={`w-full text-left px-4 py-3 rounded-md transition-all duration-200 uppercase tracking-widest text-xs font-medium ${activeTab === tab.id
                                 ? 'bg-blue-600/10 text-blue-400 border border-blue-500/20 shadow-[0_0_10px_rgba(59,130,246,0.1)]'
                                 : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'
                                 }`}

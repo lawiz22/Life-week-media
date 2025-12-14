@@ -24,6 +24,9 @@ export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
     const TOTAL_YEARS = 90;
     const TOTAL_WEEKS = TOTAL_YEARS * WEEKS_IN_YEAR;
 
+    const [legendPosition, setLegendPosition] = useState<'top' | 'bottom'>('top');
+    const [showWeekTotals, setShowWeekTotals] = useState(true);
+
     useEffect(() => {
         const load = async () => {
             const settingsPromise = window.ipcRenderer?.invoke('get-settings');
@@ -38,6 +41,8 @@ export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
             if (settings) {
                 setDob(settings.dob);
                 setStages(settings.stages);
+                if (settings.legendPosition) setLegendPosition(settings.legendPosition);
+                if (settings.showWeekTotals !== undefined) setShowWeekTotals(settings.showWeekTotals);
                 dobVal = settings.dob;
             }
 
@@ -129,31 +134,35 @@ export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
         return `${formatDate(weekStart)} - ${formatDate(weekEnd)}`;
     };
 
-    return (
-        <div className="p-8 flex justify-center">
-            <div className="inline-block">
-                <h2 className="text-2xl font-bold mb-6 text-gray-200 text-center">Your Life in Weeks</h2>
-
-                {/* Legend */}
-                <div className="mb-6 flex flex-wrap gap-4 justify-center">
-                    {stages.filter(s => (s as any).visible !== false).map((stage, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                            <div className="w-4 h-4 rounded" style={{ backgroundColor: stage.color }}></div>
-                            <span className="text-sm text-gray-300">{stage.name}</span>
-                        </div>
-                    ))}
-                    <div className="flex items-center gap-2 border-l border-gray-700 pl-4">
-                        <div className="w-3 h-3 border-[1.5px] border-white bg-gray-600"></div>
-                        <span className="text-sm text-gray-300">Photos & Videos</span>
-                    </div>
-                    <div className="flex items-center gap-2 ml-2">
-                        {/* Greyed out style for projects */}
-                        <div className="w-3 h-3 bg-gray-900/80 border border-gray-600 relative overflow-hidden">
-                            <div className="absolute inset-0 bg-black/40"></div>
-                        </div>
-                        <span className="text-sm text-gray-300">Has Projects</span>
-                    </div>
+    const legend = (
+        <div className={`flex flex-wrap gap-4 justify-center ${legendPosition === 'bottom' ? 'mt-6' : 'mb-6'}`}>
+            {stages.filter(s => (s as any).visible !== false).map((stage, i) => (
+                <div key={i} className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded" style={{ backgroundColor: stage.color }}></div>
+                    <span className="text-sm text-gray-300">{stage.name}</span>
                 </div>
+            ))}
+            <div className="flex items-center gap-2 border-l border-gray-700 pl-4">
+                <div className="w-3 h-3 border-[1.5px] border-white bg-gray-600"></div>
+                <span className="text-sm text-gray-300">Photos & Videos</span>
+            </div>
+            <div className="flex items-center gap-2 ml-2">
+                {/* Greyed out style for projects */}
+                <div className="w-3 h-3 bg-gray-900/80 border border-gray-600 relative overflow-hidden">
+                    <div className="absolute inset-0 bg-black/40"></div>
+                </div>
+                <span className="text-sm text-gray-300">Has Projects</span>
+            </div>
+        </div>
+    );
+
+    return (
+        <div className="w-full p-8 flex flex-col items-center">
+            <div className="flex flex-col items-center">
+                <h2 className="text-3xl font-light tracking-[0.2em] uppercase mb-8 text-blue-100/90 text-center drop-shadow-sm">Your Life in Weeks</h2>
+
+                {/* Legend Top */}
+                {legendPosition === 'top' && legend}
 
                 <div className="grid grid-cols-[auto_1fr] gap-4">
                     {/* Y-Axis Labels (Ages) */}
@@ -163,7 +172,7 @@ export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
                         ))}
                     </div>
 
-                    <div className="flex flex-wrap gap-[2px] max-w-[900px]">
+                    <div className="grid gap-[2px]" style={{ gridTemplateColumns: 'repeat(52, min-content)' }}>
                         {Array.from({ length: TOTAL_WEEKS })
                             .map((_, i) => ({ index: i, stage: getStageForWeek(i) }))
                             .filter(item => !item.stage || (item.stage as any).visible !== false)
@@ -189,6 +198,13 @@ export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
 
                                 const activityBorder = isPhotoOrVideo ? '1.5px solid #fff' : isProject ? '1px solid #4b5563' : (matchesBirthday(i) ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(0,0,0,0.1)');
 
+                                let title = `Week ${i} (Age ${Math.floor(i / 52)})\n${dateRange}\nStage: ${stage?.name || 'Unknown'}`;
+                                if (showWeekTotals) {
+                                    if (imgCount > 0) title += `\n📸 ${imgCount} Images`;
+                                    if (vidCount > 0) title += `\n🎬 ${vidCount} Videos`;
+                                    if (projCount > 0) title += `\n🎹 ${projCount} Projects`;
+                                }
+
                                 return (
                                     <div
                                         key={i}
@@ -199,13 +215,15 @@ export function LifeWeeks({ refreshKey }: LifeWeeksProps) {
                                             opacity: isPast ? 1 : 0.3, // Dim future weeks
                                             border: activityBorder,
                                         }}
-                                        title={`Week ${i} (Age ${Math.floor(i / 52)})\n${dateRange}\nStage: ${stage?.name || 'Unknown'}${imgCount > 0 ? `\n📸 ${imgCount} Images` : ''}${vidCount > 0 ? `\n🎬 ${vidCount} Videos` : ''}${projCount > 0 ? `\n🎹 ${projCount} Projects` : ''}`}
+                                        title={title}
                                     />
                                 );
                             })}
                     </div>
                 </div>
 
+                {/* Legend Bottom */}
+                {legendPosition === 'bottom' && legend}
 
             </div>
         </div>

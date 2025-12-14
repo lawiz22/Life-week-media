@@ -12,6 +12,8 @@ interface LifeStage {
 export function Settings() {
     const [dob, setDob] = useState('');
     const [stages, setStages] = useState<LifeStage[]>([]);
+    const [legendPosition, setLegendPosition] = useState<'top' | 'bottom'>('top');
+    const [showWeekTotals, setShowWeekTotals] = useState(true);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
@@ -25,6 +27,8 @@ export function Settings() {
             if (data) {
                 setDob(data.dob);
                 setStages(data.stages);
+                if (data.legendPosition) setLegendPosition(data.legendPosition);
+                if (data.showWeekTotals !== undefined) setShowWeekTotals(data.showWeekTotals);
             }
         } catch (err) {
             console.error(err);
@@ -36,7 +40,7 @@ export function Settings() {
     const handleSave = async () => {
         setSaving(true);
         try {
-            await window.ipcRenderer?.invoke('save-settings', { dob, stages });
+            await window.ipcRenderer?.invoke('save-settings', { dob, stages, legendPosition, showWeekTotals });
             alert('Settings saved!');
         } catch (err) {
             console.error(err);
@@ -81,16 +85,64 @@ export function Settings() {
                 </button>
             </div>
 
-            <div className="mb-8 p-6 bg-gray-800 rounded-lg border border-gray-700">
-                <h3 className="text-lg font-semibold mb-4">Your Details</h3>
-                <div className="flex flex-col gap-2">
-                    <label className="text-sm text-gray-400">Date of Birth</label>
-                    <input
-                        type="date"
-                        value={dob}
-                        onChange={(e) => setDob(e.target.value)}
-                        className="bg-gray-900 border border-gray-700 rounded p-2 text-white focus:outline-none focus:border-blue-500"
-                    />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                {/* Personal Details */}
+                <div className="p-6 bg-gray-800 rounded-lg border border-gray-700">
+                    <h3 className="text-lg font-semibold mb-4">Your Details</h3>
+                    <div className="flex flex-col gap-2">
+                        <label className="text-sm text-gray-400">Date of Birth</label>
+                        <input
+                            type="date"
+                            value={dob}
+                            onChange={(e) => setDob(e.target.value)}
+                            className="bg-gray-900 border border-gray-700 rounded p-2 text-white focus:outline-none focus:border-blue-500"
+                        />
+                    </div>
+                </div>
+
+                {/* View Options */}
+                <div className="p-6 bg-gray-800 rounded-lg border border-gray-700">
+                    <h3 className="text-lg font-semibold mb-4">View Options</h3>
+                    <div className="space-y-4">
+                        <div>
+                            <label className="text-sm text-gray-400 block mb-2">Legend Position</label>
+                            <div className="flex gap-4">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        name="legendPos"
+                                        checked={legendPosition === 'top'}
+                                        onChange={() => setLegendPosition('top')}
+                                        className="text-blue-500"
+                                    />
+                                    <span>Top</span>
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="radio"
+                                        name="legendPos"
+                                        checked={legendPosition === 'bottom'}
+                                        onChange={() => setLegendPosition('bottom')}
+                                        className="text-blue-500"
+                                    />
+                                    <span>Bottom</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                            <input
+                                type="checkbox"
+                                id="weekTotals"
+                                checked={showWeekTotals}
+                                onChange={(e) => setShowWeekTotals(e.target.checked)}
+                                className="w-4 h-4 rounded border-gray-600 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-900"
+                            />
+                            <label htmlFor="weekTotals" className="text-sm text-gray-300 cursor-pointer">
+                                Show total media counts in week tooltips
+                            </label>
+                        </div>
+                    </div>
                 </div>
             </div>
 

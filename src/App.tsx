@@ -108,7 +108,7 @@ function App() {
 
   const currentType = activeTab === 'pictures' ? 'image' :
     activeTab === 'video' ? 'video' :
-      activeTab === 'music' ? 'audio' :
+      activeTab === 'music' ? 'music' :
         activeTab === 'audio' ? 'audio' :
           activeTab === 'documents' ? 'document' :
             activeTab === 'projects' ? 'project' : '';

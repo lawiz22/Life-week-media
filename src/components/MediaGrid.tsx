@@ -77,7 +77,7 @@ export function MediaGrid({
                     </div>
                 )}
 
-                <p>No {type}s found.</p>
+                <p>No {type === 'music' ? 'music' : type + 's'} found.</p>
                 <p className="text-sm mt-2">Try importing a folder from the sidebar.</p>
             </div>
         );
