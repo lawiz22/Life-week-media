@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import lifeweekLogo from '/lifeweek_media_logo.png';
 import { Settings } from './Settings';
+import { AboutModal } from './AboutModal';
 
 type Tab = 'life-weeks' | 'pictures' | 'video' | 'music' | 'audio' | 'projects' | 'documents' | 'duplicates' | 'settings';
 interface ScanResult {
     added: number;
     skipped: number;
+    excluded: number;
     errors: number;
 }
 interface LayoutProps {
@@ -18,9 +20,12 @@ interface LayoutProps {
 export function Layout({ children, activeTab, onTabChange, onScanComplete }: LayoutProps) {
     const [isScanning, setIsScanning] = useState(false);
     const [scanProgress, setScanProgress] = useState<{ status: string; file?: string; description?: string } | null>(null);
+    const [scanLogs, setScanLogs] = useState<string[]>([]); // Console logs
     const [scanResult, setScanResult] = useState<ScanResult | null>(null);
     const [includeSubfolders, setIncludeSubfolders] = useState(false);
     const [excludeBackups, setExcludeBackups] = useState(true);
+    const [showAbout, setShowAbout] = useState(false);
+    const logContainerRef = useRef<HTMLDivElement>(null);
 
     const tabs: { id: Tab; label: string }[] = [
         { id: 'life-weeks', label: 'Life in Weeks' },
@@ -37,6 +42,12 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
     useEffect(() => {
         const handleProgress = (_: any, progress: any) => {
             setScanProgress(progress);
+            if (progress.description || progress.file) {
+                // Add log entry
+                const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: "numeric", minute: "numeric", second: "numeric" });
+                const msg = `[${time}] ${progress.description || ''} ${progress.file ? ' - ' + progress.file : ''}`;
+                setScanLogs(prev => [...prev.slice(-99), msg]); // Keep last 100
+            }
         };
 
         if (window.ipcRenderer) {
@@ -50,6 +61,13 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
         };
     }, []);
 
+    // Auto-scroll logs
+    useEffect(() => {
+        if (logContainerRef.current) {
+            logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+        }
+    }, [scanLogs]);
+
     const handleImport = async () => {
         if (isScanning) return;
 
@@ -58,12 +76,13 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
             if (path) {
                 setIsScanning(true);
                 setScanResult(null);
+                setScanLogs([]); // Reset logs
                 setScanProgress({ status: 'scanning', description: 'Starting scan...' });
 
                 const result = await window.ipcRenderer?.invoke('start-scan', path, {
                     includeSubfolders,
                     excludeBackups,
-                    scanType: activeTab // Pass active tab as scan type (pictures, video, etc.)
+                    scanType: activeTab === 'life-weeks' ? undefined : activeTab
                 });
 
                 setScanResult(result);
@@ -79,20 +98,10 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
         }
     };
 
-    const handleReset = async () => {
-        if (confirm("ARE YOU SURE?\nThis will erase all your library data. The files on disk are safe.")) {
-            try {
-                await window.ipcRenderer?.invoke('reset-library');
-                window.location.reload();
-            } catch (e) {
-                alert('Reset failed');
-                console.error(e);
-            }
-        }
-    };
-
+    // ... rest of imports/config
     const getImportConfig = () => {
         switch (activeTab) {
+            case 'life-weeks': return { label: 'Import All Media', icon: '+' };
             case 'pictures': return { label: 'Import Pictures', icon: '+' };
             case 'video': return { label: 'Import Videos', icon: '+' };
             case 'music': return { label: 'Import Music/Audio', icon: '+' };
@@ -107,13 +116,13 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
 
     return (
         <div className="flex h-screen bg-gray-950 text-white overflow-hidden font-sans">
-            {/* Sidebar */}
+            {/* Sidebar (Unchanged) */}
             <aside className="w-64 bg-gray-900 border-r border-gray-800 flex flex-col">
                 <div className="p-6 border-b border-gray-800 flex justify-center">
                     <img
                         src={lifeweekLogo}
                         alt="LifeWeek Media"
-                        className="w-32 h-32"
+                        className="w-48 h-48 object-contain"
                         onError={(e) => e.currentTarget.style.display = 'none'}
                     />
                 </div>
@@ -151,8 +160,8 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
                                 </label>
                             </div>
 
-                            {/* Exclude Backups (Only visible if subfolders checked) */}
-                            {includeSubfolders && (
+                            {/* Exclude Backups (Only visible if subfolders checked AND activeTab is 'projects') */}
+                            {includeSubfolders && activeTab === 'projects' && (
                                 <div className="flex items-center gap-2 pl-4">
                                     <input
                                         type="checkbox"
@@ -192,121 +201,148 @@ export function Layout({ children, activeTab, onTabChange, onScanComplete }: Lay
                             )}
                         </button>
                     )}
-                    <button
-                        onClick={handleReset}
-                        disabled={isScanning}
-                        className={`w-full px-4 py-2 border rounded-md transition-colors text-sm
-                             ${isScanning
-                                ? 'bg-transparent border-gray-800 text-gray-700 cursor-not-allowed'
-                                : 'bg-red-950/30 hover:bg-red-900/50 text-red-400 border-red-900/30'
-                            }`}
-                    >
-                        Reset Library
-                    </button>
-                    <div className="text-center">
-                        <span className="text-[10px] text-gray-700 font-mono">v1.20</span>
+
+                    <div className="flex justify-center pt-2">
+                        <button
+                            onClick={() => setShowAbout(true)}
+                            className="p-2 text-gray-600 hover:text-blue-400 transition-colors rounded-full hover:bg-blue-500/10"
+                            title="About LifeWeek Media"
+                        >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </button>
                     </div>
+
+
                 </div>
             </aside>
 
-            {/* Main Content */}
-            <main className="flex-1 overflow-auto bg-gray-950 relative">
-                {activeTab === 'settings' ? (
-                    <Settings />
-                ) : (
-                    children
-                )}
+            {/* Main Content Area */}
+            <main className="flex-1 min-w-0 bg-gray-950 relative overflow-hidden flex flex-col">
+                <div className="flex-1 overflow-y-auto">
+                    {activeTab === 'settings' ? (
+                        <Settings />
+                    ) : (
+                        children
+                    )}
+                </div>
 
-                {/* Scanning Modal */}
-                {(isScanning || scanResult) && (
-                    <div className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50 animate-in fade-in duration-200">
-                        <div className="w-96 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl p-6 transform transition-all scale-100">
-                            {!scanResult ? (
-                                // Scanning State
-                                <div className="flex flex-col gap-4">
-                                    <div className="flex items-center justify-between">
-                                        <h3 className="text-lg font-semibold text-white flex items-center gap-3">
-                                            <div className="animate-spin h-5 w-5 border-2 border-blue-400 border-t-transparent rounded-full"></div>
-                                            Importing Media...
-                                        </h3>
-                                        <span className="text-xs text-blue-400 font-mono px-2 py-1 bg-blue-400/10 rounded">
-                                            {scanProgress?.status === 'scanning' ? 'Scanning' :
-                                                scanProgress?.status === 'processing' ? 'Processing' :
-                                                    scanProgress?.status === 'generating_thumbnail' ? 'Thumbnailing' : 'Working'}
+                {/* Scanning Progress Modal (Centered & Expanded) */}
+                {isScanning && !scanResult && (
+                    <div className="fixed inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm z-50 animate-in fade-in duration-300">
+                        <div className="bg-gray-900 border border-gray-700 p-6 rounded-lg shadow-2xl w-[600px] flex flex-col gap-4 transform transition-all scale-100">
+
+                            {/* Header */}
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-lg font-semibold text-white flex items-center gap-3">
+                                    <div className="relative">
+                                        <div className="animate-spin h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                                        <div className="absolute inset-0 rounded-full animate-ping opacity-20 bg-blue-400"></div>
+                                    </div>
+                                    Importing Media...
+                                </h3>
+                                <div className="flex flex-col items-end">
+                                    <span className="text-xs text-blue-400 font-mono px-2 py-0.5 bg-blue-400/10 rounded uppercase tracking-wider mb-1">
+                                        {scanProgress?.status.replace('_', ' ')}
+                                    </span>
+                                    <span className="text-[10px] text-gray-500">{scanLogs.length} events</span>
+                                </div>
+                            </div>
+
+                            {/* Active Striped Progress Bar */}
+                            <div className="h-2 w-full bg-gray-800 rounded-full overflow-hidden relative">
+                                <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-blue-400 to-blue-600 animate-shimmer" style={{ backgroundSize: '200% 100%' }}></div>
+                            </div>
+
+                            {/* Console Log Terminal */}
+                            <div
+                                ref={logContainerRef}
+                                className="bg-black/50 border border-gray-800 rounded p-3 h-48 overflow-y-auto font-mono text-xs text-gray-400 space-y-1 scrollbar-thin scrollbar-thumb-gray-700"
+                            >
+                                {scanLogs.map((log, i) => (
+                                    <div key={i} className="whitespace-pre-wrap break-all border-b border-gray-800/30 pb-0.5 last:border-0">
+                                        <span className="text-gray-600 mr-2">{log.split(']')[0]}]</span>
+                                        <span className={log.includes('Processing') ? 'text-blue-300' : log.includes('Thumbnailing') ? 'text-purple-300' : 'text-gray-300'}>
+                                            {log.split(']').slice(1).join(']')}
                                         </span>
                                     </div>
+                                ))}
+                                {scanLogs.length === 0 && <span className="text-gray-600 italic">Waiting for events...</span>}
+                            </div>
 
-                                    <div className="space-y-2">
-                                        <div className="text-sm text-gray-300 font-medium truncate">
-                                            {scanProgress?.description || 'Reading files...'}
-                                        </div>
-                                        <div className="text-xs text-gray-500 font-mono truncate bg-gray-950 p-2 rounded border border-gray-800">
-                                            {scanProgress?.file || 'Initializing...'}
-                                        </div>
-                                    </div>
-
-                                    <div className="h-1.5 w-full bg-gray-800 rounded-full overflow-hidden mt-2">
-                                        <div className="h-full bg-blue-500 w-full animate-progress-indeterminate"></div>
-                                    </div>
-
-                                    {/* Stop Button */}
-                                    <button
-                                        onClick={async () => {
-                                            try {
-                                                await window.ipcRenderer?.invoke('cancel-scan');
-                                                setScanProgress({ status: 'processing', description: 'Stopping scan...' });
-                                            } catch (e) {
-                                                console.error('Failed to stop scan', e);
-                                            }
-                                        }}
-                                        className="mt-2 w-full py-2 bg-red-950/50 hover:bg-red-900/50 text-red-400 border border-red-900/30 rounded-md text-sm font-medium transition-colors"
-                                    >
-                                        Stop Import
-                                    </button>
-                                </div>
-                            ) : (
-                                // Results State
-                                <div className="flex flex-col gap-5">
-                                    <div className="flex items-center gap-3 text-green-400">
-                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                        </svg>
-                                        <h3 className="text-xl font-bold text-white">Scan Complete</h3>
-                                    </div>
-
-                                    <div className="bg-gray-950 rounded-lg border border-gray-800 p-4 space-y-2">
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-gray-400">New Files Added</span>
-                                            <span className="text-green-400 font-mono font-bold">{scanResult.added}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-gray-400">Skipped (Duplicates)</span>
-                                            <span className="text-yellow-400 font-mono font-bold">{scanResult.skipped}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-gray-400">Errors</span>
-                                            <span className={`font-mono font-bold ${scanResult.errors > 0 ? 'text-red-400' : 'text-gray-600'}`}>
-                                                {scanResult.errors}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    <button
-                                        onClick={() => {
-                                            setIsScanning(false);
-                                            setScanResult(null);
-                                            setScanProgress(null);
-                                        }}
-                                        className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-md font-medium transition-colors shadow-lg shadow-blue-900/20"
-                                    >
-                                        Close
-                                    </button>
-                                </div>
-                            )}
+                            {/* Action Buttons */}
+                            <div className="flex justify-center mt-2">
+                                <button
+                                    onClick={async () => {
+                                        try {
+                                            await window.ipcRenderer?.invoke('cancel-scan');
+                                            setScanProgress({ status: 'processing', description: 'Stopping scan...' });
+                                        } catch (e) {
+                                            console.error(e);
+                                        }
+                                    }}
+                                    className="px-6 py-2 border border-red-500/30 text-red-500 hover:bg-red-500/10 hover:border-red-500 rounded text-sm font-medium transition-all uppercase tracking-wide"
+                                >
+                                    Cancel Import
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}
             </main>
+
+            {/* Scan Results Modal Overlay */}
+            {scanResult && (
+                <div className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50 animate-in fade-in duration-200">
+                    <div className="w-96 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl p-6 transform transition-all scale-100">
+                        <div className="flex flex-col gap-5">
+                            <div className="flex items-center gap-3 text-green-400">
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                                <h3 className="text-xl font-bold text-white">Scan Complete</h3>
+                            </div>
+
+                            <div className="bg-gray-950 rounded-lg border border-gray-800 p-4 space-y-2">
+                                <div className="flex justify-between items-center">
+                                    <span className="text-gray-400">New Files Added</span>
+                                    <span className="text-green-400 font-mono font-bold">{scanResult.added}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-gray-400">Duplicates Skipped</span>
+                                    <span className="text-yellow-500 font-mono font-bold">{scanResult.skipped}</span>
+                                </div>
+                                <div className="flex justify-between items-center" title="Skipped due to filters (Ableton samples, junk)">
+                                    <span className="text-gray-400">Excluded (Junk)</span>
+                                    <span className="text-gray-500 font-mono font-bold">{scanResult.excluded || 0}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-gray-400">Errors</span>
+                                    <span className={`font-mono font-bold ${scanResult.errors > 0 ? 'text-red-400' : 'text-gray-600'}`}>
+                                        {scanResult.errors}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={() => {
+                                    setIsScanning(false);
+                                    setScanResult(null);
+                                    setScanProgress(null);
+                                }}
+                                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-md font-medium transition-colors shadow-lg shadow-blue-900/20"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showAbout && (
+                <AboutModal onClose={() => setShowAbout(false)} />
+            )}
         </div>
     );
 }

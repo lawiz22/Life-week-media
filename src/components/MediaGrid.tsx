@@ -53,8 +53,8 @@ export function MediaGrid({
     const [hoveredId, setHoveredId] = useState<number | null>(null);
     const [showStats, setShowStats] = useState(false);
 
-
-
+    // Sort State
+    const [sortConfig, setSortConfig] = useState<{ key: keyof MediaFile | 'date', direction: 'asc' | 'desc' }>({ key: 'date', direction: 'desc' });
 
     if (loading) return <div className="p-8 text-gray-400">Loading...</div>;
 
@@ -83,9 +83,40 @@ export function MediaGrid({
         );
     }
 
-    // Pagination Logic
-    const totalPages = Math.ceil(files.length / pageSize);
-    const paginatedFiles = files.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+    // Sort Logic
+    const sortedFiles = [...files].sort((a, b) => {
+        let aVal: any = a[sortConfig.key as keyof MediaFile];
+        let bVal: any = b[sortConfig.key as keyof MediaFile];
+
+        if (sortConfig.key === 'date') {
+            // Priority: Metadata Date -> CreatedAt
+            const getTs = (f: MediaFile) => {
+                if (f.metadata?.CreateDate) return new Date(f.metadata.CreateDate).getTime();
+                if (f.metadata?.DateTimeOriginal) return new Date(f.metadata.DateTimeOriginal).getTime();
+                return f.createdAt || 0;
+            };
+            aVal = getTs(a);
+            bVal = getTs(b);
+        }
+
+        if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+        if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+
+        if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    // Pagination Logic (using sorted files)
+    const totalPages = Math.ceil(sortedFiles.length / pageSize);
+    const paginatedFiles = sortedFiles.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+    const handleSort = (key: keyof MediaFile | 'date') => {
+        setSortConfig(current => ({
+            key,
+            direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc'
+        }));
+    };
 
     const handlePageChange = (newPage: number) => {
         if (newPage >= 1 && newPage <= totalPages) {
@@ -95,10 +126,14 @@ export function MediaGrid({
 
     const getGridClass = () => {
         switch (viewMode) {
-            case 'large': return 'grid-cols-4 lg:grid-cols-5';  // Previously Medium
-            case 'medium': return 'grid-cols-6 lg:grid-cols-8'; // Previously Small-ish
-            case 'small': return 'grid-cols-10 lg:grid-cols-12'; // New Tiny
-            default: return 'grid-cols-6 lg:grid-cols-8';
+            case 'large': // Was medium
+                return 'grid-cols-3 md:grid-cols-4 lg:grid-cols-5';
+            case 'medium': // Was small
+                return 'grid-cols-4 md:grid-cols-6 lg:grid-cols-8';
+            case 'small': // New dense mode
+                return 'grid-cols-6 md:grid-cols-8 lg:grid-cols-10';
+            default:
+                return 'grid-cols-4 md:grid-cols-6 lg:grid-cols-8';
         }
     };
 
@@ -220,6 +255,47 @@ export function MediaGrid({
                         </button>
                     )}
 
+                    {/* Export/Import Type Buttons */}
+                    <div className="flex items-center gap-2 border-r border-gray-700 pr-4 mr-2">
+                        <button
+                            onClick={async () => {
+                                try {
+                                    const res = await (window as any).ipcRenderer.invoke('export-database', { type });
+                                    if (res) alert(`${type} Library Exported!`);
+                                } catch (e) {
+                                    console.error(e);
+                                    alert('Export Failed');
+                                }
+                            }}
+                            className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+                            title={`Export ${type} Library (Zip)`}
+                        >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                        </button>
+                        <button
+                            onClick={async () => {
+                                try {
+                                    const res = await (window as any).ipcRenderer.invoke('import-database');
+                                    if (res) {
+                                        alert(`Import Complete!\nImported: ${res.imported}\nSkipped: ${res.skipped}\nRestored Thumbnails: ${res.thumbnailRestored}`);
+                                        window.location.reload();
+                                    }
+                                } catch (e) {
+                                    console.error(e);
+                                    alert('Import Failed');
+                                }
+                            }}
+                            className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+                            title="Import Library Backup (Zip)"
+                        >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                            </svg>
+                        </button>
+                    </div>
+
                     {type === 'audio' && onAutoPlayChange && (
                         <div className="flex items-center gap-2">
                             <input
@@ -234,6 +310,26 @@ export function MediaGrid({
                             </label>
                         </div>
                     )}
+
+                    {/* Reset Button */}
+                    <button
+                        onClick={async () => {
+                            if (window.confirm(`Are you sure you want to delete ALL ${type}s from your library? This cannot be undone.`)) {
+                                try {
+                                    await (window as any).ipcRenderer.invoke('reset-media-by-type', type);
+                                    window.location.reload();
+                                } catch (e) {
+                                    console.error('Reset failed', e);
+                                    alert('Failed to reset library.');
+                                }
+                            }
+                        }}
+                        className="px-3 py-1.5 text-sm bg-red-900/30 hover:bg-red-900/50 text-red-400 border border-red-900/50 rounded transition-colors ml-4"
+                        title={`Remove all ${type}s`}
+                    >
+                        Reset {type === 'music' ? 'Music' : type === 'audio' ? 'Audio' : type.charAt(0).toUpperCase() + type.slice(1)}
+                    </button>
+
                 </div>
             </div>
 
@@ -254,9 +350,29 @@ export function MediaGrid({
                             <table className="w-full text-left border-collapse">
                                 <thead className="text-xs uppercase text-gray-500 border-b border-gray-800 sticky top-0 bg-gray-950/90 backdrop-blur-sm z-10">
                                     <tr>
-                                        <th className="py-3 px-4 font-medium">Preview</th>
-                                        <th className="py-3 px-4 font-medium">Name</th>
-                                        <th className="py-3 px-4 font-medium">Date Taken</th>
+                                        <th className="py-3 px-4 font-medium w-16">Preview</th>
+                                        <th
+                                            className="py-3 px-4 font-medium cursor-pointer hover:text-white transition-colors select-none"
+                                            onClick={() => handleSort('filename')}
+                                        >
+                                            <div className="flex items-center gap-1">
+                                                Name
+                                                {sortConfig.key === 'filename' && (
+                                                    <span className="text-blue-400">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                                                )}
+                                            </div>
+                                        </th>
+                                        <th
+                                            className="py-3 px-4 font-medium cursor-pointer hover:text-white transition-colors select-none"
+                                            onClick={() => handleSort('date')}
+                                        >
+                                            <div className="flex items-center gap-1">
+                                                Date Taken
+                                                {sortConfig.key === 'date' && (
+                                                    <span className="text-blue-400">{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                                                )}
+                                            </div>
+                                        </th>
                                         <th className="py-3 px-4 font-medium">Dimensions</th>
                                         <th className="py-3 px-4 font-medium">Camera</th>
                                     </tr>
@@ -323,6 +439,8 @@ export function MediaGrid({
                                 files={paginatedFiles}
                                 onSelect={onSelect}
                                 viewMode={viewMode}
+                                sortConfig={sortConfig}
+                                onSort={handleSort}
                             />
                         ) : type === 'audio' ? (
                             <AudioGrid
@@ -363,9 +481,33 @@ export function MediaGrid({
                                                 e.currentTarget.style.display = 'none';
                                             }}
                                         />
-                                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-2 pointer-events-none">
-                                            <span className="text-xs text-white truncate w-full shadow-black drop-shadow-md">{file.filename}</span>
+                                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none p-4">
+                                            <div className="bg-black/80 backdrop-blur-md rounded-lg p-3 max-w-full shadow-2xl border border-white/10 transform scale-95 group-hover:scale-100 transition-transform duration-200">
+                                                <div className="text-white text-xs font-bold truncate text-center mb-1">
+                                                    {file.filename}
+                                                </div>
+                                                <div className="text-gray-400 text-[10px] text-center font-mono">
+                                                    {file.createdAt ? new Date(file.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : 'Unknown Date'}
+                                                </div>
+                                            </div>
                                         </div>
+                                        {/* Delete Button */}
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (window.confirm('Remove from Library ONLY? File will remain on disk.')) {
+                                                    (window as any).ipcRenderer.invoke('delete-file', { id: file.id, filepath: file.filepath, onlyDb: true });
+                                                    // Force simple reload for now, or assume component updates via props/reload
+                                                    window.location.reload();
+                                                }
+                                            }}
+                                            className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-red-600/80 text-white rounded-full opacity-0 group-hover:opacity-100 transition-all transform scale-90 group-hover:scale-100 backdrop-blur-sm z-10"
+                                            title="Remove from Library (Keep file)"
+                                        >
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                            </svg>
+                                        </button>
                                     </div>
                                 ))}
                             </div>

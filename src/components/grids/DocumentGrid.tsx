@@ -61,6 +61,22 @@ export function DocumentGrid({ files, onSelect, viewMode }: DocumentGridProps) {
                                     <span>{media.createdAt ? new Date(media.createdAt).toLocaleDateString() : ''}</span>
                                 </div>
                             </div>
+                            {/* Delete Button (List View) */}
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (window.confirm('Remove from Library ONLY? File will remain on disk.')) {
+                                        (window as any).ipcRenderer.invoke('delete-file', { id: media.id, filepath: media.filepath, onlyDb: true });
+                                        window.location.reload();
+                                    }
+                                }}
+                                className="p-2 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                                title="Remove from Library"
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                            </button>
                         </div>
                     );
                 }
@@ -84,6 +100,23 @@ export function DocumentGrid({ files, onSelect, viewMode }: DocumentGridProps) {
                             <div className="text-white text-sm font-medium truncate">{media.filename}</div>
                             <div className="text-xs text-gray-400 mt-0.5">{media.createdAt ? new Date(media.createdAt).toLocaleDateString() : ''}</div>
                         </div>
+
+                        {/* Delete Button (Grid View) */}
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (window.confirm('Remove from Library ONLY? File will remain on disk.')) {
+                                    (window as any).ipcRenderer.invoke('delete-file', { id: media.id, filepath: media.filepath, onlyDb: true });
+                                    window.location.reload();
+                                }
+                            }}
+                            className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-red-600/80 text-white rounded-full opacity-0 group-hover:opacity-100 transition-all transform scale-90 group-hover:scale-100 backdrop-blur-sm z-10"
+                            title="Remove from Library (Keep file)"
+                        >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                        </button>
                     </div>
                 );
             })}

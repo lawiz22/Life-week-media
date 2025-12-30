@@ -26,6 +26,7 @@ sharp.cache(false);
 export interface ScanResult {
     added: number;
     skipped: number;
+    excluded: number;
     errors: number;
 }
 
@@ -56,7 +57,7 @@ export class FileScanner {
         onProgress?: (progress: ScanProgress) => void,
         signal?: AbortSignal
     ): Promise<ScanResult> {
-        const result: ScanResult = { added: 0, skipped: 0, errors: 0 };
+        const result: ScanResult = { added: 0, skipped: 0, excluded: 0, errors: 0 };
 
         try {
             await this.walk(dirPath, result, options, onProgress, signal);
@@ -142,7 +143,7 @@ export class FileScanner {
             // Check if already in DB
             const existing = this.db.select().from(mediaFiles).where(eq(mediaFiles.filepath, normalizedPath)).get();
             if (existing) {
-                result.skipped++;
+                result.skipped++; // Genuine duplicate
                 return;
             }
 
@@ -159,6 +160,65 @@ export class FileScanner {
             // Only import relevant types
             if (type === 'unknown') return;
             if (type === 'project' && !options.scanProjects && options.scanType !== 'projects') return;
+
+            // --- Audio Exclusion Logic ---
+            if (type === 'audio') {
+                // 1. Path Check (Ableton Samples & Generic DAW folders)
+                // Normalize separators to forward slashes for consistent checking on Windows
+                const p = filePath.toLowerCase().replace(/\\/g, '/');
+
+                if (p.includes('/samples/imported') ||
+                    p.includes('/samples/recorded') ||
+                    p.includes('/samples/processed') ||
+                    p.includes('/ableton project info') ||
+                    p.includes('ableton project info') || // Sometimes check without slash if root
+                    p.includes('/consolidate/') ||  // FL Studio / generic
+                    p.includes('/bounced files/')   // Logic/others
+                ) {
+                    console.log(`[Skipped] DAW artifact folder: ${path.basename(filePath)}`);
+                    result.excluded++;
+                    return;
+                }
+
+                // Parse Metadata EARLY to filter by duration/generic name
+                try {
+                    const mm = await parseFile(filePath, { duration: true, skipCovers: false });
+                    const duration = mm.format.duration || 0;
+
+                    // 2. Duration Check (User confirmed 30s)
+                    if (duration < 30) {
+                        console.log(`[Skipped] Short audio (<30s): ${path.basename(filePath)} (${duration.toFixed(1)}s)`);
+                        result.excluded++;
+                        return;
+                    }
+
+                    // 3. Generic Filename + No Metadata Check
+                    // Catch "Audio 001", "0001 1-Audio", "0001 [Track]", "Recording 2"
+                    const filename = path.basename(filePath);
+
+                    // Regex patterns for DAW auto-names:
+                    // ^audio\s*\d+ -> "Audio 001"
+                    // ^recording\s*\d+ -> "Recording 1"
+                    // ^\d+\s+\d+-audio -> "0007 1-Audio" (User provided example)
+                    // ^\d+\s+audio -> "0001 Audio"
+                    const isGenericName =
+                        /^audio\s*[\d\-_]+/i.test(filename) ||
+                        /^recording\s*[\d\-_]+/i.test(filename) ||
+                        /^\d+\s+[\d\-_]*audio/i.test(filename) ||
+                        /^\d+\s+.*-audio/i.test(filename);
+
+                    const hasMetadata = !!(mm.common.title || mm.common.artist || mm.common.album);
+
+                    if (isGenericName && !hasMetadata) {
+                        console.log(`[Skipped] Generic/DAW audio name with no metadata: ${path.basename(filePath)}`);
+                        result.excluded++;
+                        return;
+                    }
+
+                } catch (e) {
+                    console.warn(`[Warning] Failed to pre-parse audio for filtering: ${filePath}. Skipping filter.`);
+                }
+            }
 
             // Filter by scanType if provided
             if (options.scanType && options.scanType !== type) {
@@ -184,7 +244,7 @@ export class FileScanner {
                     const meta = await sharp(filePath).metadata();
                     if ((meta.width || 0) < 400 && (meta.height || 0) < 400) {
                         console.log(`[Skipped] Small image: ${path.basename(filePath)} (${meta.width}x${meta.height})`);
-                        result.skipped++;
+                        result.excluded++;
                         return;
                     }
                 } catch (e) {

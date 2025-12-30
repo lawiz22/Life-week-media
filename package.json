@@ -13,6 +13,7 @@
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@types/xml2js": "^0.4.14",
+    "adm-zip": "^0.5.16",
     "better-sqlite3": "^12.5.0",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.1",
@@ -30,6 +31,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.17",
+    "@types/adm-zip": "^0.5.7",
     "@types/better-sqlite3": "^7.6.13",
     "@types/exif-reader": "^1.0.0",
     "@types/fluent-ffmpeg": "^2.1.28",

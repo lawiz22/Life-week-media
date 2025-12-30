@@ -51,7 +51,7 @@ export function Settings() {
     };
 
     const handleReset = async () => {
-        if (!confirm('Are you sure you want to delete ALL media and reset the database? This cannot be undone.')) return;
+        if (!confirm('Are you sure you want to reset the Library Database? This will clear all metadata and thumbnails, but your actual files on disk will NOT be touched.')) return;
         try {
             const res = await window.ipcRenderer?.invoke('reset-library');
             if (res.success) {
@@ -146,6 +146,60 @@ export function Settings() {
                 </div>
             </div>
 
+            {/* Library Management */}
+            <div className="mb-8 p-6 bg-gray-800 rounded-lg border border-gray-700">
+                <h3 className="text-lg font-semibold mb-4">Library Management</h3>
+                <div className="flex flex-col md:flex-row gap-4">
+                    <button
+                        onClick={async () => {
+                            setSaving(true);
+                            try {
+                                const res = await window.ipcRenderer?.invoke('export-database', {});
+                                if (res) alert('Library Exported Successfully!');
+                            } catch (e) {
+                                console.error(e);
+                                alert('Export Failed');
+                            } finally {
+                                setSaving(false);
+                            }
+                        }}
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded text-white font-medium transition-colors border border-gray-600"
+                    >
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        Export Full Library (Zip)
+                    </button>
+
+                    <button
+                        onClick={async () => {
+                            setSaving(true);
+                            try {
+                                const res = await window.ipcRenderer?.invoke('import-database');
+                                if (res) {
+                                    alert(`Import Complete!\nImported: ${res.imported}\nSkipped (Partial): ${res.skipped}\nRestored Thumbnails: ${res.thumbnailRestored}`);
+                                    window.location.reload();
+                                }
+                            } catch (e) {
+                                console.error(e);
+                                alert('Import Failed');
+                            } finally {
+                                setSaving(false);
+                            }
+                        }}
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded text-white font-medium transition-colors border border-gray-600"
+                    >
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                        </svg>
+                        Import Library Backup
+                    </button>
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                    Exports include all metadata and thumbnails. Importing is a "Wise Import" - it duplicates are skipped, and missing thumbnails are restored.
+                </p>
+            </div>
+
             <div className="mb-8 p-6 bg-gray-800 rounded-lg border border-gray-700">
                 <div className="flex justify-between items-center mb-4">
                     <h3 className="text-lg font-semibold">Life Stages</h3>
@@ -237,6 +291,6 @@ export function Settings() {
                     {saving ? 'Saving...' : 'Save Settings'}
                 </button>
             </div>
-        </div>
+        </div >
     );
 }

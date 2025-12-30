@@ -64,12 +64,24 @@ export function WeekDetailModal({ isOpen, onClose, weekIndex, startDate, endDate
                                     onClick={() => onNavigate(file)}
                                 >
                                     {/* Thumbnail */}
-                                    {file.type === 'image' || file.type === 'video' ? (
+                                    {file.type === 'image' ? (
                                         <img
-                                            src={`media://file/${btoa(file.filepath)}`}
+                                            src={`media://file/${btoa(encodeURIComponent(file.filepath).replace(/%([0-9A-F]{2})/g, (_, p1) => String.fromCharCode(parseInt(p1, 16))))}`}
                                             className="w-full h-full object-cover"
                                             alt={file.filename}
                                             loading="lazy"
+                                        />
+                                    ) : file.type === 'video' ? (
+                                        <img
+                                            src={`media://thumbnail/${file.id}`}
+                                            className="w-full h-full object-cover"
+                                            alt={file.filename}
+                                            loading="lazy"
+                                            onError={(e) => {
+                                                // Fallback to generic icon if thumbnail missing
+                                                e.currentTarget.style.display = 'none';
+                                                e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                            }}
                                         />
                                     ) : file.type === 'project' ? (
                                         <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-gray-800 text-gray-400 group-hover:bg-gray-750">
